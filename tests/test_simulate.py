@@ -137,7 +137,7 @@ def test_teacher_registry_and_discovery():
 
 def test_teacher_check_success_pick_place(pick_place_env):
     """评估成功判定由 teacher 提供：pick_place 在 cube 放到 plate 上时判成功。"""
-    from mujoco_lerobot.env.lerobot_env import MujocoLerobotEnv
+    from lerobot_env_mujoco_lerobot import MujocoLerobotEnv
 
     env = MujocoLerobotEnv(
         task_name="pick_place",
@@ -159,7 +159,7 @@ def test_teacher_check_success_pick_place(pick_place_env):
 
 def test_env_render_fps_matches_recode_hz():
     """评估视频帧率 = recode_hz，使视频时长 = 仿真时长（无慢放）。"""
-    from mujoco_lerobot.env.lerobot_env import MujocoLerobotEnv
+    from lerobot_env_mujoco_lerobot import MujocoLerobotEnv
     from mujoco_lerobot.configs.dataset_config import DatasetConfig
 
     env = MujocoLerobotEnv(
@@ -184,7 +184,7 @@ def test_scene_view_config():
 
 def test_env_render_view():
     """eval 视频用 view 配置的自由视角渲染，且不改变观测相机视角。"""
-    from mujoco_lerobot.env.lerobot_env import MujocoLerobotEnv
+    from lerobot_env_mujoco_lerobot import MujocoLerobotEnv
 
     env = MujocoLerobotEnv(
         task_name="pick_place",
@@ -201,3 +201,176 @@ def test_env_render_view():
     diff = np.abs(vimg.astype(int) - cam_rgb.astype(int)).mean()
     assert diff > 1.0
     env.close()
+
+
+def test_env_preprocessor_scales_rgb_and_depth():
+    """评估 env preprocessor：rgb /255 → [0,1]；depth 默认米不变、mm 时 ×1000。"""
+    import torch
+    from lerobot_env_mujoco_lerobot.lerobot_env_cfg import (
+        MujocoLerobotEnvConfig,
+        ScaleDepthToOutputUnitProcessorStep,
+        ScaleRgbImagesProcessorStep,
+    )
+
+    step_rgb = ScaleRgbImagesProcessorStep()
+    out_rgb = step_rgb.observation(
+        {"observation.images.cam.rgb": torch.full((3, 4, 4), 128.0)}
+    )
+    assert out_rgb["observation.images.cam.rgb"].tolist()[0][0][0] == pytest.approx(
+        128.0 / 255.0, abs=1e-6
+    )
+
+    # depth 默认 "m"：保持不变（env 已是米，训练统一米）
+    step_m = ScaleDepthToOutputUnitProcessorStep("m")
+    out_m = step_m.observation(
+        {"observation.images.cam.depth": torch.full((1, 4, 4), 0.7)}
+    )
+    assert out_m["observation.images.cam.depth"].tolist()[0][0][0] == pytest.approx(0.7)
+
+    # depth "mm"：×1000
+    step_mm = ScaleDepthToOutputUnitProcessorStep("mm")
+    out_mm = step_mm.observation(
+        {"observation.images.cam.depth": torch.full((1, 4, 4), 0.7)}
+    )
+    assert out_mm["observation.images.cam.depth"].tolist()[0][0][0] == 700.0
+
+    # get_env_processors 默认含两个步骤，depth 默认 "m"
+    env_pre, _ = MujocoLerobotEnvConfig(
+        task="pick_place", dataset_config="configs/dataset/dataset_pick_place.yaml"
+    ).get_env_processors()
+    step_types = [type(s) for s in env_pre.steps]
+    assert ScaleRgbImagesProcessorStep in step_types
+    assert ScaleDepthToOutputUnitProcessorStep in step_types
+    assert env_pre.steps[1].depth_output_unit == "m"
+
+
+def test_eval_depth_normalization_matches_training():
+    """训练与评估在统一深度单位下归一化一致（默认米，也可统一为 mm）。
+
+    训练：dataloader 以 ``dataset.depth_output_unit``（本项目 "m"）解码深度、stats 为米；
+    评估：env 产出米制 depth，env preprocessor 默认 "m" 不变 → Normalizer（米 stats）
+    输入分布与训练一致。若训练/评估统一设为 "mm"，env ×1000 后得到相同归一化值。
+    """
+    import torch
+    from lerobot.configs import FeatureType, PolicyFeature
+    from lerobot.policies.factory import make_policy_config
+    from lerobot_env_mujoco_lerobot.lerobot_env_cfg import MujocoLerobotEnvConfig
+    from lerobot_policy_Adaptive_ACT.processor_adaptive_act import (
+        make_adaptive_act_pre_post_processors,
+    )
+
+    def _build(unit: str, depth_mean: float, depth_std: float):
+        cfg = make_policy_config(
+            "adaptive_act",
+            input_features={
+                "observation.state": PolicyFeature(type=FeatureType.STATE, shape=(7,)),
+                "observation.images.cam.rgb": PolicyFeature(
+                    type=FeatureType.VISUAL, shape=(3, 32, 32)
+                ),
+                "observation.images.cam.depth": PolicyFeature(
+                    type=FeatureType.VISUAL, shape=(1, 32, 32)
+                ),
+            },
+            output_features={"action": PolicyFeature(type=FeatureType.ACTION, shape=(7,))},
+            use_vae=False,
+            chunk_size=8,
+            n_action_steps=8,
+            dim_model=32,
+            n_heads=2,
+            dim_feedforward=128,
+            n_encoder_layers=1,
+            n_decoder_layers=1,
+            latent_dim=4,
+            pretrained_backbone_weights=None,
+        )
+        stats = {
+            "observation.state": {"mean": torch.zeros(7), "std": torch.ones(7)},
+            "observation.images.cam.rgb": {
+                "mean": torch.zeros(3, 1, 1), "std": torch.ones(3, 1, 1) * 0.5,
+            },
+            "observation.images.cam.depth": {
+                "mean": torch.full((1, 1, 1), depth_mean),
+                "std": torch.full((1, 1, 1), depth_std),
+            },
+            "action": {"mean": torch.zeros(7), "std": torch.ones(7)},
+        }
+        pre, _ = make_adaptive_act_pre_post_processors(cfg, dataset_stats=stats)
+        env_pre, _ = MujocoLerobotEnvConfig(
+            task="pick_place",
+            dataset_config="configs/dataset/dataset_pick_place.yaml",
+            depth_output_unit=unit,
+        ).get_env_processors()
+        return pre, env_pre
+
+    def _normed_depth(pre, env_pre, depth_m: float):
+        b = 2
+        batch = {
+            "observation.state": torch.randn(b, 7),
+            "observation.images.cam.rgb": (torch.rand(b, 3, 32, 32) * 255).to(torch.uint8),
+            "observation.images.cam.depth": torch.full((b, 1, 32, 32), depth_m),  # 米
+            "action": torch.zeros(b, 8, 7),
+            "action_is_pad": torch.zeros(b, 8, dtype=torch.bool),
+            "task": ["t"] * b,
+        }
+        env_obs = env_pre(batch)
+        normed = pre(env_obs)
+        return env_obs["observation.images.cam.depth"], normed["observation.images.cam.depth"].cpu()
+
+    # 统一米：训练 stats 米(0.311/0.201)，env 0.7m 不变 → (0.7-0.311)/0.201 ≈ 1.935
+    pre_m, env_pre_m = _build("m", 0.311, 0.201)
+    env_depth_m, normed_m = _normed_depth(pre_m, env_pre_m, 0.7)
+    assert torch.allclose(env_depth_m, torch.full((2, 1, 32, 32), 0.7))
+    assert torch.allclose(
+        normed_m, torch.full((2, 1, 32, 32), (0.7 - 0.311) / 0.201), atol=1e-3
+    )
+
+    # 统一 mm：训练 stats 毫米(311/201)，env 0.7m ×1000=700mm → (700-311)/201 ≈ 1.935
+    pre_mm, env_pre_mm = _build("mm", 311.0, 201.0)
+    env_depth_mm, normed_mm = _normed_depth(pre_mm, env_pre_mm, 0.7)
+    assert torch.allclose(env_depth_mm, torch.full((2, 1, 32, 32), 700.0))
+    assert torch.allclose(
+        normed_mm, torch.full((2, 1, 32, 32), (700.0 - 311.0) / 201.0), atol=1e-3
+    )
+    # 无论统一为 m 还是 mm，0.7m 深度的归一化结果一致
+    assert torch.allclose(normed_m, normed_mm, atol=1e-3)
+
+
+def test_auto_depth_output_unit_follows_recorded_unit():
+    """训练深度单位自动识别：默认 mm 时自动跟随数据集记录单位（本项目 'm'）。
+
+    补丁在 env 插件导入时安装（见 lerobot_env_mujoco_lerobot/patches.py）；
+    此处验证安装幂等、能从数据集识别记录单位，并通过 make_dataset 端到端
+    覆盖 depth_output_unit（解码出米）。
+    """
+    import draccus
+    import torch
+    from lerobot.configs.train import TrainPipelineConfig
+    from lerobot.datasets import factory as lerobot_factory
+    from lerobot.datasets.factory import make_train_eval_datasets
+    from lerobot_policy_Adaptive_ACT import AdaptiveACTConfig  # noqa: F401 注册策略
+    from lerobot_env_mujoco_lerobot.patches import (
+        _resolve_recorded_depth_unit,
+        install_lerobot_depth_unit_patch,
+    )
+
+    # 安装幂等
+    assert install_lerobot_depth_unit_patch() is True
+    assert install_lerobot_depth_unit_patch() is True
+    assert getattr(lerobot_factory.make_dataset, "_lerobot_depth_unit_patched", False)
+
+    cfg = draccus.parse(TrainPipelineConfig, args=[
+        "--policy.type=adaptive_act",
+        "--policy.input_features={\"observation.state\":{\"type\":\"STATE\",\"shape\":[7]}}",
+        "--dataset.repo_id=mujoco_pick_place",
+        "--dataset.root=outputs/datasets/pick_place/20260806_004855",
+        "--output_dir=/tmp/depth_unit_patch_test",
+        "--steps=1",
+    ])
+    assert cfg.dataset.depth_output_unit == "mm"  # lerobot 默认（未显式指定）
+    assert _resolve_recorded_depth_unit(cfg) == "m"
+
+    # make_dataset（已补丁）自动把解码单位覆盖为记录单位 "m"
+    ds, _ = make_train_eval_datasets(cfg)
+    assert ds.depth_output_unit == "m"
+    dep = np.asarray(ds[0]["observation.images.realsense_link_CAMERA.depth"]).astype(np.float32)
+    assert 0.1 < float(dep.mean()) < 2.0  # 米量级（若是 mm 会 ~数百）

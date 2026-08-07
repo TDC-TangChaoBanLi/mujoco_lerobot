@@ -12,6 +12,9 @@ lerobot-eval 的通用 preprocess_observation 会把 `observation.` 前缀补上
   - 每个 `step()` = 一个记录帧（recode 间隔）
   - 帧内按 dataset 的 use_recode_scale 对状态进行多速率子采样 → obs shape (R, D)
   - 相机每帧渲染一次（camrender 并行 + 深度线性化）
+
+本环境是任务无关的：任务名 + dataset 配置全部由构造参数驱动，
+成功判定经由 teacher 注册表按任务自动发现（见 ``_init_teacher``）。
 """
 
 from __future__ import annotations
@@ -22,15 +25,15 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from ..configs.config_loader import load_scene_config
-from ..configs.dataset_config import DatasetConfig
-from ..configs.teacher_config import load_teacher_config
-from ..simulate.actuators import build_actuator_mapping, apply_arm_action
-from ..simulate.camera_renderer import CameraRenderer
-from ..simulate.mujoco_wrapper import MujocoWrapper
-from ..data.observation_collector import ObservationCollector
-from ..data.reset_manager import ResetManager
-from ..data.teachers import create_teacher, TEACHER_REGISTRY
+from mujoco_lerobot.configs.config_loader import load_scene_config
+from mujoco_lerobot.configs.dataset_config import DatasetConfig
+from mujoco_lerobot.configs.teacher_config import load_teacher_config
+from mujoco_lerobot.simulate.actuators import build_actuator_mapping, apply_arm_action
+from mujoco_lerobot.simulate.camera_renderer import CameraRenderer
+from mujoco_lerobot.simulate.mujoco_wrapper import MujocoWrapper
+from mujoco_lerobot.data.observation_collector import ObservationCollector
+from mujoco_lerobot.data.reset_manager import ResetManager
+from mujoco_lerobot.data.teachers import create_teacher, TEACHER_REGISTRY
 
 log = logging.getLogger(__name__)
 

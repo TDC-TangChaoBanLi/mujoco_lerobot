@@ -1,0 +1,106 @@
+# 自适应 ACT 策略训练配置（lerobot TrainPipelineConfig）
+#
+# 用法：
+#   uv run lerobot-train --config_path=configs/policy/adaptive_act.yaml
+#
+# 命令行参数优先级更高，可覆盖本文件任意字段。例如：
+#   uv run lerobot-train --config_path=configs/policy/adaptive_act.yaml \
+#       --policy.image_channels=4 \
+#       --dataset.root=outputs/datasets/pick_place/<新时间戳目录> \
+#       --steps=100000
+
+# ── 策略（adaptive_act）────────────────────────────────────
+policy:
+  type: adaptive_act
+
+  # 输入特征：pick_place 数据集含 rgb(3ch) 与 depth(1ch) 两个 VISUAL 特征。
+  # 二者通过下方 concat_visual_features 沿通道维拼成 4 通道 RGBD 再送入 backbone
+  # （conv1 自动适配 4 通道）；无需再单独指定 image_channels。
+  input_features:
+    observation.state:
+      type: STATE
+      shape: [7]
+    observation.images.realsense_link_CAMERA.rgb:
+      type: VISUAL
+      shape: [3, 480, 640]
+    observation.images.realsense_link_CAMERA.depth:
+      type: VISUAL
+      shape: [1, 480, 640]
+
+  # 视觉特征通道拼接：把同一相机的 rgb+depth 拼成 4 通道 RGBD 视图，
+  # 被拼接的源特征不再单独送入 backbone。
+  # 若只想用纯 RGB（不拼 depth），把 concat_visual_features 置空（null）并从
+  # input_features 中去掉 depth 即可。
+  concat_visual_features:
+    observation.images.realsense_link_CAMERA.rgbd:
+      - observation.images.realsense_link_CAMERA.rgb
+      - observation.images.realsense_link_CAMERA.depth
+
+  # 相机分组：pick_place 仅 1 个相机，留空（null）时所有相机共用一个 resnet18，
+  # 等价原生 ACT 的单 backbone。
+  # 多相机示例（如双臂 3 相机：两个手眼 + 一个全局）：
+  #   camera_backbone_groups:
+  #     hand: [camera_left, camera_right]   # 两个手眼相机共用一个 resnet18
+  #     global: [camera_top]                # 全局相机用另一个 resnet18
+  # 未出现在任何组的相机自动归入共享默认组。
+  # camera_backbone_groups: null
+
+  # # 输入图像通道数；null = 构建时从 input_features 自动识别
+  # image_channels: null
+
+  # # 架构（默认与原生 ACT 一致）
+  # vision_backbone: resnet18
+  # pretrained_backbone_weights: ResNet18_Weights.IMAGENET1K_V1
+  # replace_final_stride_with_dilation: false
+  # pre_norm: false
+  # dim_model: 512
+  # n_heads: 8
+  # dim_feedforward: 3200
+  # feedforward_activation: relu
+  # n_encoder_layers: 4
+  # n_decoder_layers: 1
+  # use_vae: true
+  # latent_dim: 32
+  # n_vae_encoder_layers: 4
+
+  # # 输入 / 输出结构
+  # n_obs_steps: 1
+  # chunk_size: 100
+  # n_action_steps: 100
+  # temporal_ensemble_coeff: null
+
+  # # 训练
+  # dropout: 0.1
+  # kl_weight: 10.0
+  # optimizer_lr: 1e-5
+  # optimizer_weight_decay: 1e-4
+  # optimizer_lr_backbone: 1e-5
+  # use_amp: true
+  # push_to_hub: false
+
+# ── 数据集 ────────────────────────────────────────────────
+# dataset:
+#   repo_id: mujoco_pick_place
+#   # 按实际采集的时间戳目录覆盖（configs/dataset/dataset_pick_place.yaml 为记录格式，
+#   # 这里是已采集的数据目录）
+#   root: outputs/datasets/pick_place/20260806_004855
+#   # 深度解码输出单位：env 产出米。默认无需显式指定——已安装补丁会自动跟随数据集
+#   # info.json 记录的单位（depth_unit="m"，与 env 一致，见 lerobot_env_mujoco_lerobot
+#   # 的 patches.py）。此处显式保留 "m" 作为兜底/文档；若确需覆盖请显式设置。
+#   depth_output_unit: m
+
+# ── 训练 ──────────────────────────────────────────────────
+# output_dir: outputs/train/adaptive_act_pick_place
+# steps: 100000
+# batch_size: 32
+# save_freq: 5000
+# log_freq: 100
+# env_eval_freq: 20000
+# num_workers: 4
+# seed: 1000
+
+# 可选：离线 WandB 指标（本地记录曲线，无需登录）
+# wandb:
+#   enable: true
+#   mode: offline
+#   project: mujoco_lerobot

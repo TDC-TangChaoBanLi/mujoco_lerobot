@@ -6,7 +6,8 @@
 - 高性能多相机并行渲染（[mujoco_camrender](libs/mujoco_camrender)，RGB + 深度线性化）
 - IK 解算基于 [mink](https://github.com/kevinzakka/mink/)
 - LeRobot 环境插件（`lerobot_env_mujoco_lerobot`），支持 `lerobot-eval` 直接评估
-- 示例策略插件（`lerobot_policy_mujoco_lerobot_example`）演示 eval 端到端流程
+- 自适应 ACT 策略插件（`lerobot_policy_Adaptive_ACT`）：任意图像通道数输入 +
+  按相机分组共享 / 独立 resnet18 backbone，注册为策略类型 `adaptive_act`
 
 ## 环境准备
 
@@ -79,21 +80,42 @@ uv run python scripts/collect_data.py \
     （支持 `frame_site` 参考系与 `type`：`absolute`/`relative`/`velocity`）
 - `configs/teachers/*.yaml`：scripted teacher 参数（对象名、阈值、高度、夹爪指令等）。
 
-## 策略训练（ACT + 离线 WandB）
+## 策略训练（Adaptive ACT + 离线 WandB）
 
-用 LeRobot 内置 ACT 在采集的数据集上训练（`use_recode_scale: false` 的扁平格式
-可直接训练）。**必须显式指定 `input_features` 只包含 rgb**（否则 ACT 会把 1 通道
-的 depth 也当视觉输入，报 `expected 3 channels got 1` 错误）。
+使用内置自适应 ACT 策略插件（`--policy.type=adaptive_act`）在采集的数据集上训练
+（`use_recode_scale: false` 的扁平格式可直接训练）。策略参数可经
+`configs/policy/adaptive_act.yaml` 配置文件提供，也可全部用命令行传入；命令行
+参数优先级更高，会覆盖配置文件中的同名参数。
+
+**输入特征注意**：数据集同时含 rgb（3 通道）与 depth（1 通道）两个 VISUAL 特征。
+可选两种用法：
+- 纯 RGB：`input_features` 只选 rgb（3 通道）；
+- RGBD：把同一相机的 rgb+depth 通过 `concat_visual_features` 沿通道维拼成
+  4 通道输入（见 `configs/policy/adaptive_act.yaml`）。
+图像通道数会自动从特征 shape 识别（`image_channels` 无需指定）。
+
+**深度单位注意**：训练时 lerobot 以 `dataset.depth_output_unit` 解码深度视频，
+默认是 `"mm"`，而 env 产出**米**——若不统一会导致评估深度分布错误。本项目已内置
+**自动跟随补丁**（`lerobot_env_mujoco_lerobot` 的 `patches.py`）：训练时无需指定，
+dataloader 自动读取数据集 `info.json` 记录的 `depth_unit`（本项目为 `"m"`，与
+MuJoCo 渲染单位一致）作为解码单位。若确需强制覆盖，显式传
+`--dataset.depth_output_unit=<m|mm>` 即可。
 
 ```bash
-# 基础训练（无日志可视化）
-uv run lerobot.train \
-    --policy.type=act \
+# 方式一：使用策略配置文件（推荐；命令行可覆盖任意字段，如 dataset.root / steps）
+uv run lerobot-train \
+    --config_path=configs/policy/adaptive_act.yaml \
+    --dataset.root=$(pwd)/outputs/datasets/pick_place/<时间戳目录> \
+    --steps=100000
+
+# 方式二：全部命令行参数
+uv run lerobot-train \
+    --policy.type=adaptive_act \
     --policy.push_to_hub=false \
     --policy.input_features='{"observation.state":{"type":"STATE","shape":[7]},"observation.images.realsense_link_CAMERA.rgb":{"type":"VISUAL","shape":[3,480,640]}}' \
     --dataset.repo_id=mujoco_pick_place \
     --dataset.root=$(pwd)/outputs/datasets/pick_place/<时间戳目录> \
-    --output_dir=outputs/train/act_pick_place \
+    --output_dir=outputs/train/adaptive_act_pick_place \
     --steps=100000 \
     --batch_size=32 \
     --save_freq=5000 \
@@ -107,17 +129,11 @@ loss/学习率等曲线，可启用 WandB **离线模式**——不需要登录�
 `output_dir/wandb/` 目录，之后可手动同步到云端查看：
 
 ```bash
-uv run lerobot.train \
-    --policy.type=act \
-    --policy.push_to_hub=false \
-    --policy.input_features='{"observation.state":{"type":"STATE","shape":[7]},"observation.images.realsense_link_CAMERA.rgb":{"type":"VISUAL","shape":[3,480,640]}}' \
-    --dataset.repo_id=mujoco_pick_place \
+uv run lerobot-train \
+    --config_path=configs/policy/adaptive_act.yaml \
     --dataset.root=$(pwd)/outputs/datasets/pick_place/<时间戳目录> \
-    --output_dir=outputs/train/act_pick_place \
+    --output_dir=outputs/train/adaptive_act_pick_place \
     --steps=100000 \
-    --batch_size=32 \
-    --save_freq=5000 \
-    --log_freq=100 \
     --wandb.enable=true \
     --wandb.mode=offline \
     --wandb.project=mujoco_lerobot
@@ -138,13 +154,13 @@ uv run lerobot.train \
 
 #### 查看离线日志
 
-离线运行的数据落在 `<output_dir>/wandb/`（如 `outputs/train/act_pick_place/wandb/`），
+离线运行的数据落在 `<output_dir>/wandb/`（如 `outputs/train/adaptive_act_pick_place/wandb/`），
 每个 run 一个 `offline-run-<时间戳>-<run_id>` 目录，核心指标保存在目录内的
 `run-<run_id>.wandb` 文件（LevelDB protobuf 格式）：
 
 ```bash
 # 1) 列出离线 run
-ls outputs/train/act_pick_place/wandb/
+ls outputs/train/adaptive_act_pick_place/wandb/
 #    → offline-run-20260806_210548-t0nynggt/
 ```
 
@@ -154,7 +170,7 @@ ls outputs/train/act_pick_place/wandb/
 
 ```bash
 wandb login            # 首次登录（一次性）
-wandb sync outputs/train/act_pick_place/wandb/offline-run-*   # 上传该 run 到云端
+wandb sync outputs/train/adaptive_act_pick_place/wandb/offline-run-*   # 上传该 run 到云端
 # 上传完成后控制台会打印云端 URL，打开即可查看 loss / lr / 梯度等曲线
 ```
 
@@ -169,7 +185,7 @@ import glob
 from wandb.sdk.internal.datastore import DataStore
 from wandb.proto import wandb_internal_pb2
 
-for p in sorted(glob.glob("outputs/train/act_pick_place/wandb/offline-run-*/run-*.wandb")):
+for p in sorted(glob.glob("outputs/train/adaptive_act_pick_place/wandb/offline-run-*/run-*.wandb")):
     print(f"== {p} ==")
     ds = DataStore()
     ds.open_for_scan(p)
@@ -199,12 +215,12 @@ EOF
 （覆盖 `get_env_processors`）适配。
 
 ```bash
-# 无头评估
+# 无头评估（策略类型从 checkpoint 的 config.json 自动识别为 adaptive_act）
 uv run lerobot-eval \
     --env.type=mujoco_lerobot \
     --env.task=pick_place \
     --env.dataset_config=configs/dataset/dataset_pick_place.yaml \
-    --policy.path=path/to/checkpoint \
+    --policy.path=outputs/train/adaptive_act_pick_place/checkpoints/last/pretrained_model \
     --eval.n_episodes=5
 
 # 可视化评估（打开 MuJoCo viewer，需要真实桌面显示环境）
@@ -213,20 +229,106 @@ uv run lerobot-eval \
     --env.task=pick_place \
     --env.dataset_config=configs/dataset/dataset_pick_place.yaml \
     --env.render_mode=human \
-    --policy.path=path/to/checkpoint
+    --policy.path=outputs/train/adaptive_act_pick_place/checkpoints/last/pretrained_model
 ```
 
-### 示例策略（演示端到端）
+### 评估参数说明
 
-内置一个最小 MLP 示例策略插件 `mujoco_lerobot_example`，消费数据集格式观测：
+- `--eval.n_episodes`：评估（并统计成功率）的 episode 总数。
+- `--env.max_episode_steps`：每个 episode 的最大仿真步数上限。
+  每个 step 推进 `1 / recode_hz` 秒（默认 100Hz → 0.01s），本任务 teacher 演示
+  平均约 9s（906 帧），因此评估时建议给足时间，例如
+  `--env.max_episode_steps=4000`（约 40s），否则策略即使学会也来不及完成。
+- **视频数量上限**：lerobot-eval 默认最多为**前 10 个** episode 渲染视频
+  （`eval_episode_0.mp4` ~ `eval_episode_9.mp4`，位于
+  `output_dir/videos/mujoco_lerobot_0/`）。**所有** `n_episodes` 都参与成功率
+  统计，只是超过 10 个的 episode 不再生成视频。如需为全部 episode 生成视频，
+  可开启 `--eval.recording`（此时不限视频数，但同时会把评估结果录制为
+  LeRobot 数据集到 `output_dir/recordings/`，磁盘占用较大）。
+- **视频帧率/视角**：eval 视频用场景配置 `view:` 的自由视角渲染
+  （`lookat`/`distance`/`elevation`/`azimuth`），分辨率由 `view.image_size`
+  控制；播放帧率 = `recode_hz`（100），因此视频时长 = 仿真时长（无慢放）。
+- **评估侧输入归一化（与训练一致）**：评估时 env 产出的观测会经环境 preprocessor
+  适配到与训练相同的表示后，再进策略 preprocessor（MEAN_STD，stats 来自数据集）：
+  - rgb：uint8 `[0,255]` → `[0,1]`（对齐训练 dataloader 的 `/255`）；
+  - depth：env 产出**米**，训练通过内置补丁自动跟随数据集记录单位（`"m"`）解码、
+    stats 亦为米 → 评估无需转换。若训练被强制设为 `"mm"`，需把 env preprocessor 设为
+    `--env.depth_output_unit=mm`（米×1000 转毫米）以对齐。
+  若 rgb/depth 输入表示与训练分布不一致，策略在评估时"失明"、输出退化动作。
+  注意：`info.json` 的 `depth_unit` 只声明**记录单位**（采集写入时，确为米）；
+  lerobot 训练解码单位是独立的 `dataset.depth_output_unit`（默认 `"mm"`），本项目
+  通过补丁让训练自动跟随记录单位（见 `lerobot_env_mujoco_lerobot/patches.py`）。
+
+### 自适应 ACT 策略（`adaptive_act`）
+
+内置自适应 ACT 策略插件 `lerobot_policy_Adaptive_ACT`，在原生 ACT 基础上扩展：
+
+1. **任意图像通道数输入**：支持灰度（1 通道）、RGB（3 通道）、RGB-D（4 通道）及
+   任意通道数；非 3 通道时仅替换 resnet 的 `conv1`（灰度取预训练 RGB 均值、多余
+   通道取 RGB 均值），**其余层保留 ImageNet 预训练权重**。
+2. **按相机分组共享 / 独立 backbone**：`camera_backbone_groups` 指定各分组包含的
+   相机，同组相机共用一个 resnet18，不同组用独立 resnet18；未指定的相机自动归入
+   共享默认组。
+3. **通道数自动识别**：`image_channels=None`（默认）时从数据集的
+   `input_features` 自动识别通道数，无需人工指定。
+4. **RGBD 支持（通道拼接）**：`concat_visual_features` 可把同一相机的
+   rgb（3ch）+ depth（1ch）沿通道维拼成 4 通道 RGBD 视图（conv1 自动适配），
+   无需重新采集数据集；拼接视图的通道数 = 各源通道数之和。
+5. **配置灵活**：全部超参可经 YAML 模型配置文件或命令行传入，命令行参数优先
+   （覆盖配置文件中的同名参数）。
+6. **全归一化**：所有输入 / 输出经 LeRobot 默认 MEAN_STD pre/post processor 归一化
+   （拼接前各源特征按其自身 stats 归一化）。
+7. 模型基于纯 `torch.nn.Transformer` 构建，任务无关（不限于 pick_place）。
 
 ```bash
-# 从零初始化策略演示（无需 checkpoint）
+# 训练（从数据集初始化，通道数/特征自动从 input_features 识别）
+uv run lerobot-train \
+    --policy.type=adaptive_act \
+    --policy.input_features='{"observation.state":{"type":"STATE","shape":[7]},"observation.images.realsense_link_CAMERA.rgb":{"type":"VISUAL","shape":[3,480,640]}}' \
+    --dataset.repo_id=mujoco_pick_place \
+    --dataset.root=outputs/datasets/pick_place/20260806_004855 \
+    --output_dir=outputs/train/adaptive_act_pick_place \
+    --steps=50000 --batch_size=32
+
+# 评估
 uv run lerobot-eval \
     --env.type=mujoco_lerobot --env.task=pick_place \
     --env.dataset_config=configs/dataset/dataset_pick_place.yaml \
-    --policy.type=mujoco_lerobot_example \
-    --eval.n_episodes=1
+    --policy.path=outputs/train/adaptive_act_pick_place/checkpoints/last/pretrained_model \
+    --eval.n_episodes=5 --eval.batch_size=1 --eval.use_async_envs=false
+```
+
+模型配置使用完整训练配置文件 `configs/policy/adaptive_act.yaml`（含 `policy:`
+自适应 ACT 超参、`dataset:` 与训练参数），命令行参数优先级更高：
+
+```bash
+# 用配置文件训练，命令行可覆盖任意字段
+uv run lerobot-train \
+    --config_path=configs/policy/adaptive_act.yaml \
+    --policy.image_channels=4 \   # 命令行覆盖配置文件中的 image_channels
+    --steps=100000
+```
+
+> 多相机分组示例见 `configs/policy/adaptive_act.yaml` 内注释：
+> `camera_backbone_groups: {hand: [camera_left, camera_right], global: [camera_top]}`
+> —— 两个手眼相机共用一个 resnet18，全局相机用另一个；未指定相机自动归入默认组。
+
+RGBD（rgb+depth 4 通道）用法：在 `input_features` 中同时保留 rgb 与 depth，并通过
+`concat_visual_features` 把它们拼成一个视图（`configs/policy/adaptive_act.yaml`
+已内置该示例，可直接用于 pick_place）：
+
+```yaml
+policy:
+  type: adaptive_act
+  input_features:
+    observation.state: {type: STATE, shape: [7]}
+    observation.images.realsense_link_CAMERA.rgb:   {type: VISUAL, shape: [3, 480, 640]}
+    observation.images.realsense_link_CAMERA.depth: {type: VISUAL, shape: [1, 480, 640]}
+  concat_visual_features:
+    observation.images.realsense_link_CAMERA.rgbd:
+      - observation.images.realsense_link_CAMERA.rgb
+      - observation.images.realsense_link_CAMERA.depth
+  # 拼接后有效视觉输入为 4 通道 RGBD，conv1 自动适配，image_channels 无需指定
 ```
 
 ## 性能说明
@@ -242,7 +344,7 @@ uv run lerobot-eval \
 ## 测试
 
 ```bash
-# 单元测试（16 项）
+# 单元测试（env / 策略 / 诊断 rollout）
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest tests/
 ```
 
@@ -259,9 +361,8 @@ scripts/collect_data.py     # 一键数据采集（auto / keyboard）
 src/mujoco_lerobot/         # 主包
   ├── configs/              # 配置加载（含 use_recode_scale）
   ├── simulate/             # MuJoCo 封装、IK、相机渲染
-  ├── data/                 # 采集（采集器/控制器/teacher/写入器/调度器）
-  └── env/                  # gym 环境 + EnvConfig
-src/lerobot_env_mujoco_lerobot/          # LeRobot 环境插件
-src/lerobot_policy_mujoco_lerobot_example/  # 示例策略插件
-tests/                      # 单元测试
+  └── data/                 # 采集（采集器/控制器/teacher/写入器/调度器）
+src/lerobot_env_mujoco_lerobot/          # LeRobot 环境插件（gym 环境 + EnvConfig）
+src/lerobot_policy_Adaptive_ACT/         # 自适应 ACT 策略插件
+tests/                      # 单元测试（env / 策略 / 诊断 rollout）
 ```
