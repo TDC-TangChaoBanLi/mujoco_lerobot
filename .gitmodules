@@ -1,0 +1,3 @@
+[submodule "libs/mujoco_camrender"]
+	path = libs/mujoco_camrender
+	url = https://github.com/TDC-TangChaoBanLi/mujoco_camrender.git

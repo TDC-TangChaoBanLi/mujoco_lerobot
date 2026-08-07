@@ -1,0 +1,11 @@
+<!-- T形物体目标点 -->
+<mujoco model="t_target">
+  <worldbody>
+    <body name="t_target" pos="0.45 0.15 0.62">
+      <inertial mass="0.08" diaginertia="5e-5 3e-5 8e-5" pos="0 0 0"/>
+      <geom name="t_target_stem" type="box" size="0.01 0.035 0.001" rgba="0.2 0.3 0.75 1" contype="0" conaffinity="0" group="2"/>
+      <geom name="t_target_cross" type="box" size="0.04 0.01 0.001" pos="0 0.045 0" rgba="0.2 0.3 0.75 1" contype="0" conaffinity="0" group="2"/>
+      <site name="t_target_center" size="0.005"/>
+    </body>
+  </worldbody>
+</mujoco>

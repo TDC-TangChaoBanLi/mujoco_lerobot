@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.vscode
+
+# 数据采集输出
+outputs/
+
+# camrender 构建产物（libs 子模块内）
+libs/mujoco_camrender/build/
+libs/mujoco_camrender/src/mujoco_camrender/_mujoco_camrender*.so
+.env

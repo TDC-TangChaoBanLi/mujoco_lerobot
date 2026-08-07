@@ -1,0 +1,36 @@
+# 单臂 Pick-and-Place 场景配置（与 assets/mujoco/scenes/pick_place.xml 对应）
+# 相机参数（image_size/fps）是渲染的实际参数；
+# 若与 mjcf 中 camera 的 resolution/fovy 冲突，加载时会打印警告。
+# 深度范围（depth_range）不属于渲染参数，由数据集配置定义
+# （configs/dataset/dataset_pick_place.yaml → state.camera.depth_range）。
+
+# ── 机器人 ──
+robot:
+  - name: "ur5e"            # 机器人名称，仅用于标识
+    prefix: ""              # 机器人前缀，用于修饰 joint / site 的 name
+    arm_joints:
+      - ur_shoulder_pan_joint
+      - ur_shoulder_lift_joint
+      - ur_elbow_joint
+      - ur_wrist_1_joint
+      - ur_wrist_2_joint
+      - ur_wrist_3_joint
+    gripper_joints:
+      - robotiq_85_left_knuckle_joint
+    ee_site: "_tcp"
+    default_qpos: [0.0, -1.32, 1.32, -1.57, -1.57, 0.0]
+
+# ── 视角（评估可视化 / 数据采集初始视角 / eval 视频渲染）──
+view:
+  lookat: [0.45, 0.0, 0.65]   # 相机注视点
+  distance: 1.8               # 相机距离
+  elevation: -25.0            # 俯仰角（度）
+  azimuth: 130.0              # 方位角（度）
+  image_size: [640, 480]      # eval 视频分辨率 (W, H)
+
+# ── 相机 ──
+camera:
+  - name: "realsense_link_CAMERA"   # 与 mjcf 中的 camera name 一致
+    fps: 30                          # 相机渲染帧率
+    image_size: [640, 480]           # 图像尺寸 (W, H)
+    type: "rgb_depth"                # "gray" | "rgb" | "depth" | "rgb_depth"

@@ -1,0 +1,9 @@
+# ── 仿真 / 控制 频率 ──
+sim:
+  physics_dt: 0.001        # 物理仿真步长 (1000 Hz)
+  policy_dt: 0.01          # 策略执行间隔 (100 Hz)
+
+# ── 采集参数 ──
+collection:
+  max_time: 30.0           # 每 episode 最长时间 (秒)
+  max_attempts: 3          # 每 episode 最大重试次数

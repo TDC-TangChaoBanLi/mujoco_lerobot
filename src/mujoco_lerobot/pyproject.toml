@@ -1,0 +1,12 @@
+[project]
+name = "mujoco-lerobot-core"
+version = "0.1.0"
+description = "MuJoCo-based LeRobot simulation environment: data collection + evaluation"
+requires-python = ">=3.12"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mujoco_lerobot"]

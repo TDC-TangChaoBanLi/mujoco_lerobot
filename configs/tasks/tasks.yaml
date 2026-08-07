@@ -1,0 +1,61 @@
+# 任务配置
+#
+# 每个任务通过 scene_file 指向 mjcf 场景，通过 scene_config_file / teacher_config_file
+# 连接场景配置与 teacher 配置。数据集格式不在此处配置（同一场景可有多种采集格式，
+# 通过数据采集脚本传入不同的 dataset 配置文件）。
+
+pick_place:
+  scene_file: assets/mujoco/scenes/pick_place.xml
+  scene_config_file: configs/scenes/scene_pick_place.yaml
+  teacher_config_file: configs/teachers/pick_place.yaml
+  task_id: 0
+  domain_randomization:
+    cube_mount:
+      pos:
+        x_range: [-0.4, 0.0]
+        y_range: [-0.35, 0.35]
+        z_range: [0.65, 0.65]
+      euler:
+        roll_range: [-0.2, 0.2]
+        pitch_range: [-0.2, 0.2]
+        yaw_range: [-0.2, 0.2]
+    plate_mount:
+      pos:
+        x_range: [0.0, 0.2]
+        y_range: [-0.30, 0.30]
+        z_range: [0.65, 0.65]
+
+dual_pick_place:
+  scene_file: assets/mujoco/scenes/dual_pick_place.xml
+  scene_config_file: configs/scenes/scene_dual_pick_place.yaml
+  teacher_config_file: configs/teachers/dual_pick_place.yaml
+  task_id: 1
+  domain_randomization:
+    A_cube_mount:
+      pos:
+        x_range: [-0.5, -0.2]
+        y_range: [-0.35, -0.1]
+        z_range: [0.65, 0.65]
+      euler:
+        roll_range: [-0.2, 0.2]
+        pitch_range: [-0.2, 0.2]
+        yaw_range: [-0.2, 0.2]
+    A_plate_mount:
+      pos:
+        x_range: [0.5, 0.2]
+        y_range: [-0.35, -0.1]
+        z_range: [0.65, 0.65]
+    B_cube_mount:
+      pos:
+        x_range: [0.5, 0.2]
+        y_range: [0.1, 0.35]
+        z_range: [0.65, 0.65]
+      euler:
+        roll_range: [-0.2, 0.2]
+        pitch_range: [-0.2, 0.2]
+        yaw_range: [-0.2, 0.2]
+    B_plate_mount:
+      pos:
+        x_range: [-0.2, -0.5]
+        y_range: [0.1, 0.35]
+        z_range: [0.65, 0.65]

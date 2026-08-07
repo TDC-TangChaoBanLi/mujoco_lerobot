@@ -1,0 +1,24 @@
+<!-- peg_in_slot 场景 -->
+<mujoco model="peg_in_slot_scene">
+  <compiler angle="radian" balanceinertia="true" meshdir="../robot/meshes"/>
+  <option timestep="0.001" cone="elliptic" impratio="10"/>
+  <visual>
+    <global offwidth="640" offheight="480"/>
+    <quality shadowsize="4096"/>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1"/>
+  </visual>
+  <statistic center="0.45 0 0.3" extent="0.8"/>
+  <asset>
+    <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+  </asset>
+
+  <include file="../objects/table.xml"/>
+  <include file="../robot/ur5e_full.xml"/>
+
+    <include file="../objects/slot_block.xml"/>
+    <include file="../objects/peg.xml"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="0 0 0.05" rgba="0.4 0.4 0.45 1"/>
+    <light name="overhead" pos="0 0 2" dir="0 0 -1" directional="true"/>
+  </worldbody>
+</mujoco>

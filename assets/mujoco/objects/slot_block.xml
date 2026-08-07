@@ -1,0 +1,31 @@
+<!--
+  带凹槽块 MJCF — Peg-in-Slot 任务的 slot
+  主体方块 0.06m x 0.06m x 0.04m
+  中心凹槽: 0.018m 宽, 0.025m 深, 沿 z 轴
+  灰色
+-->
+<mujoco model="slot_block">
+  <worldbody>
+    <body name="slot_block" pos="0 0 0.02">
+      <freejoint name="slot_block_joint"/>
+      <inertial mass="0.1" diaginertia="5e-5 5e-5 5e-5" pos="0 0 0"/>
+      <!-- 主体方块 -->
+      <geom name="slot_base" type="box" size="0.03 0.03 0.02" pos="0 0 0" rgba="0.5 0.5 0.55 1" friction="0.7 0.5 0.3"/>
+      <!-- 凹槽四周壁 (用 4 个长方体围出中心孔) -->
+      <!-- 上壁 (y+) -->
+      <geom name="slot_wall_top" type="box" size="0.012 0.006 0.015" pos="0 0.024 0.005" rgba="0.5 0.5 0.55 1" friction="0.7 0.5 0.3"/>
+      <!-- 下壁 (y-) -->
+      <geom name="slot_wall_bottom" type="box" size="0.012 0.006 0.015" pos="0 -0.024 0.005" rgba="0.5 0.5 0.55 1" friction="0.7 0.5 0.3"/>
+      <!-- 左壁 (x-) -->
+      <geom name="slot_wall_left" type="box" size="0.006 0.018 0.015" pos="-0.024 0 0.005" rgba="0.5 0.5 0.55 1" friction="0.7 0.5 0.3"/>
+      <!-- 右壁 (x+) -->
+      <geom name="slot_wall_right" type="box" size="0.006 0.018 0.015" pos="0.024 0 0.005" rgba="0.5 0.5 0.55 1" friction="0.7 0.5 0.3"/>
+
+      <!-- 槽底 site (凹槽底部中心) -->
+      <site name="slot_bottom" pos="0 0 -0.005" size="0.003"/>
+      <!-- 槽口 site (凹槽顶部中心) -->
+      <site name="slot_top" pos="0 0 0.025" size="0.003"/>
+      <site name="slot_center" pos="0 0 0.01" size="0.005"/>
+    </body>
+  </worldbody>
+</mujoco>

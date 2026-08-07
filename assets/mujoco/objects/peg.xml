@@ -1,0 +1,21 @@
+<!--
+  凸轴物体 MJCF — Peg-in-Slot 任务的 peg
+  主体圆柱直径 0.03m, 高 0.05m
+  尖端小圆柱直径 0.016m, 高 0.02m (用于插入)
+  橙色
+-->
+<mujoco model="peg">
+  <worldbody>
+    <body name="peg" pos="0 0 0.03">
+      <freejoint name="peg_joint"/>
+      <!-- 主体 -->
+      <geom name="peg_body" type="cylinder" size="0.015 0.03" pos="0 0 0.015" rgba="0.9 0.5 0.1 1" friction="0.6 0.4 0.2"/>
+      <inertial mass="0.06" diaginertia="1e-5 1e-5 1e-5" pos="0 0 0.03"/>
+      <!-- 尖端 (插入轴) -->
+      <geom name="peg_tip" type="cylinder" size="0.008 0.01" pos="0 0 0.055" rgba="0.95 0.6 0.2 1" friction="0.4 0.3 0.1"/>
+      <!-- tip site 用于检测插入深度 -->
+      <site name="peg_tip_site" pos="0 0 0.065" size="0.003"/>
+      <site name="peg_grasp_site" pos="0 0 0.04" size="0.005"/>
+    </body>
+  </worldbody>
+</mujoco>

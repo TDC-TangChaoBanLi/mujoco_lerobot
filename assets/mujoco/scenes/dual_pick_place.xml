@@ -1,0 +1,57 @@
+<!-- Dual Pick and Place 场景 -->
+<mujoco model="dual_pick_place_scene">
+  <compiler angle="radian" balanceinertia="true" meshdir="../robot/meshes"/>
+  <option timestep="0.001" cone="elliptic" impratio="10"/>
+  <visual>
+    <global offwidth="640" offheight="480"/>
+    <quality shadowsize="4096"/>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1"/>
+  </visual>
+  <statistic center="0.45 0 0.3" extent="0.8"/>
+  <asset>
+    <model name="ur5_full" file="../robot/ur5e_full.xml"/>
+    <model name="table" file="../objects/table.xml"/>
+    <model name="cube" file="../objects/cube.xml"/>
+    <model name="plate" file="../objects/plate.xml"/>
+    <model name="realsense_d435" file="../robot/realsense_d435.xml"/>
+    <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+  </asset>
+
+  <worldbody>
+    <!-- 桌子 -->
+    <body name="table_mount" pos="0.0 0 0" quat="0 0 0 1">
+      <attach model="table" body="table_top" prefix=""/>
+    </body>
+    <!-- RealSense D435 相机 -->
+    <body name="global_realsense_d435_mount" pos="0 0.8 1.2" euler="2.3562 0 0">
+      <attach model="realsense_d435" body="realsense_bottom_screw_frame" prefix="global_"/>
+    </body>
+    <!-- 立方体 -->
+    <body name="A_cube_mount" pos="-0.2 0 0.65">
+      <freejoint/>
+      <attach model="cube" body="cube" prefix="A_"/>
+    </body>
+    <body name="B_cube_mount" pos="0.2 0 0.65">
+      <freejoint/>
+      <attach model="cube" body="cube" prefix="B_"/>
+    </body>
+    <!-- 盘子 -->
+    <body name="A_plate_mount" pos="-0.2 0 0.65">
+      <freejoint/>
+      <attach model="plate" body="plate" prefix="A_"/>
+    </body>
+    <body name="B_plate_mount" pos="0.2 0 0.65">
+      <freejoint/>
+      <attach model="plate" body="plate" prefix="B_"/>
+    </body>
+    <!-- UR5e 机械臂 -->
+    <body name="A_ur_mount" pos="-0.8 0 0.7" quat="1 0 0 0">
+      <attach model="ur5_full" body="ur_base_link_inertia" prefix="A_"/>
+    </body>
+    <body name="B_ur_mount" pos="0.8 0 0.7" quat="0 0 0 1">
+      <attach model="ur5_full" body="ur_base_link_inertia" prefix="B_"/>
+    </body>
+    <geom name="floor" type="plane" size="0 0 0.05" rgba="0.4 0.4 0.45 1"/>
+    <light name="overhead" pos="0 0 2" dir="0 0 -1" directional="true"/>
+  </worldbody>
+</mujoco>

@@ -1,0 +1,70 @@
+<!--
+  RealSense D435 相机模型
+-->
+<mujoco model="realsense_d435">
+  <compiler angle="radian" autolimits="true" balanceinertia="true" meshdir="meshes"/>
+
+  <default>
+    <default class="visual">
+      <geom contype="0" conaffinity="0" group="2"/>
+    </default>
+    <default class="collision">
+      <geom contype="1" conaffinity="1" group="3" condim="4"/>
+    </default>
+  </default>
+
+  <!-- ========== Assets ========== -->
+  <!-- D435 mesh -->
+  <asset>
+    <mesh name="MESH_d435_6743a526_0"  file="d435_6743a526_0.obj"/>
+    <mesh name="MESH_d435_6743a526_1"  file="d435_6743a526_1.obj"/>
+    <mesh name="MESH_d435_6743a526_2"  file="d435_6743a526_2.obj"/>
+    <mesh name="MESH_d435_6743a526_3"  file="d435_6743a526_3.obj"/>
+    <mesh name="MESH_d435_6743a526_4"  file="d435_6743a526_4.obj"/>
+    <mesh name="MESH_d435_6743a526_5"  file="d435_6743a526_5.obj"/>
+    <mesh name="MESH_d435_6743a526_6"  file="d435_6743a526_6.obj"/>
+    <mesh name="MESH_d435_6743a526_7"  file="d435_6743a526_7.obj"/>
+    <mesh name="MESH_d435_6743a526_8"  file="d435_6743a526_8.obj"/>
+    <mesh name="MESH_d435_6743a526_9"  file="d435_6743a526_9.obj"/>
+    <mesh name="MESH_d435_6743a526_10" file="d435_6743a526_10.obj"/>
+    <mesh name="MESH_d435_6743a526_11" file="d435_6743a526_11.obj"/>
+    <mesh name="MESH_d435_6743a526_12" file="d435_6743a526_12.obj"/>
+    <mesh name="MESH_d435_6743a526_13" file="d435_6743a526_13.obj"/>
+    <mesh name="MESH_d435_6743a526_14" file="d435_6743a526_14.obj"/>
+    <mesh name="MESH_d435_6743a526_15" file="d435_6743a526_15.obj"/>
+    <mesh name="MESH_d435_6743a526_16" file="d435_6743a526_16.obj"/>
+    <mesh name="MESH_d435_6743a526_17" file="d435_6743a526_17.obj"/>
+  </asset>
+
+  <!-- =========== -->
+  <!--   D435 模型 -->
+  <!-- =========== -->
+  <worldbody>
+    <!-- Camera side -->
+    <body name="realsense_bottom_screw_frame" pos="0 0.0875 0.013" quat="0.5 -0.5 -0.5 -0.5" gravcomp="1">
+        <body name="realsense_link" pos="0.0106 0.0175 0.0125" quat="1 0 0 0" gravcomp="1">
+        <inertial mass="0.072" diaginertia="0.003881243 0.00049894 0.003879257" pos="0 0 0" quat="1 0 0 0"/>
+        <geom name="COLLISION_realsense_link_0" class="collision" type="box" pos="0 -0.0175 0" size="0.012525 0.045 0.0125"/>
+        <geom name="VISUAL_realsense_link_0" class="visual" type="mesh" mesh="MESH_d435_6743a526_0"  rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_1" class="visual" type="mesh" mesh="MESH_d435_6743a526_1"  rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_2" class="visual" type="mesh" mesh="MESH_d435_6743a526_2"  rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_3" class="visual" type="mesh" mesh="MESH_d435_6743a526_3"  rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_4" class="visual" type="mesh" mesh="MESH_d435_6743a526_4"  rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_5" class="visual" type="mesh" mesh="MESH_d435_6743a526_5"  rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_6" class="visual" type="mesh" mesh="MESH_d435_6743a526_6"  rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_7" class="visual" type="mesh" mesh="MESH_d435_6743a526_7"  rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_8" class="visual" type="mesh" mesh="MESH_d435_6743a526_8"  rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_9" class="visual" type="mesh" mesh="MESH_d435_6743a526_9"  rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_10" class="visual" type="mesh" mesh="MESH_d435_6743a526_10" rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_11" class="visual" type="mesh" mesh="MESH_d435_6743a526_11" rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_12" class="visual" type="mesh" mesh="MESH_d435_6743a526_12" rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_13" class="visual" type="mesh" mesh="MESH_d435_6743a526_13" rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_14" class="visual" type="mesh" mesh="MESH_d435_6743a526_14" rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_15" class="visual" type="mesh" mesh="MESH_d435_6743a526_15" rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_16" class="visual" type="mesh" mesh="MESH_d435_6743a526_16" rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <geom name="VISUAL_realsense_link_17" class="visual" type="mesh" mesh="MESH_d435_6743a526_17" rgba="0.749 0.749 0.749 1" pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5"/>
+        <camera name="realsense_link_CAMERA" mode="fixed" pos="0 0 0" euler="0 -1.5708 -1.5708" fovy="75" resolution="640 480"/>
+        </body>
+    </body>
+  </worldbody>
+</mujoco>

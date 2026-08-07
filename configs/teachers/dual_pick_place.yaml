@@ -1,0 +1,44 @@
+# 双臂 Pick-and-Place Scripted Teacher 配置（交叉搬运）
+# 各参数含义见 src/mujoco_lerobot/data/teachers/dual_pick_place_teacher.py
+
+type: DualPickPlaceTeacher
+
+# 高度参数
+heights:
+  above: 0.12           # 抓取上方高度
+  lift: 0.10            # 提升高度
+  place: 0.08           # 放置高度
+  retreat: 0.15         # 撤退高度
+  table_z: 0.65         # 桌面高度 (m)
+
+# 中心放置随机范围
+center:
+  x_range: [-0.05, 0.05]     # 中心放置 X 随机范围
+  y_half_range: [-0.2, -0.3] # 中心放置 Y 半范围（臂 A 取正值，臂 B 取反）
+
+# 安全避让位
+retreat:
+  center_a: [-0.3, 0.3]      # 臂 A 安全避让圆心 (x, y)
+  center_b: [0.3, -0.3]      # 臂 B 安全避让圆心 (x, y)
+  radius: 0.1                # 避让半径范围 (m)
+
+# 夹爪朝下基础欧拉角 (roll, pitch, yaw)
+grasp_euler:
+  a: [3.14159, 0.0, 1.5708]   # 臂 A
+  b: [3.14159, 0.0, -1.5708]  # 臂 B
+
+# 阈值
+thresh:
+  approach_pos: 0.03
+  approach_rot: 0.1
+  grasp_dist: 0.08
+  drop_dist: 0.10
+  place_dist: 0.12
+  gripper_wait: 50
+  settle_wait: 30
+  max_retries: 3
+
+# 夹爪指令
+gripper:
+  open: 0.0
+  close: 0.8

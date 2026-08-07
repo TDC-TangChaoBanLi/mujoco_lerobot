@@ -1,0 +1,113 @@
+# 单臂 Pick-and-Place 数据集记录格式
+#
+# use_recode_scale (bool)：全局开关，决定数据集 feature 结构：
+#   true  = 启用 recode_scale 扩展：各数据源以 recode_hz × recode_scale 的频率
+#           采样，一个 LeRobot 帧内包含多个子采样（shape (R, D)），
+#           适用于自定义多速率模型（如 BiMFT）。
+#   false = 关闭：所有数据源按 recode_hz 记录，产出 LeRobot 标准扁平格式：
+#           state 各源拼接为 observation.state (state_dim,)，
+#           action 为 (action_dim,)，可直接用于 LeRobot 内置 ACT 等策略；
+#           并忽略所有 recode_scale 字段。
+use_recode_scale: false
+
+# 记录频率（LeRobot 数据集 fps）
+recode_hz: 100.0
+
+state:
+  recode_scale: 1
+  joint:
+    recode_scale: 3          # 多级嵌套则连乘 → 90 Hz 采样
+    position:
+      recode_scale: 1
+      joint_names:
+        - ur_shoulder_pan_joint
+        - ur_shoulder_lift_joint
+        - ur_elbow_joint
+        - ur_wrist_1_joint
+        - ur_wrist_2_joint
+        - ur_wrist_3_joint
+        - robotiq_85_left_knuckle_joint
+    # velocity: # dim: 1*n  关节速度（qvel）
+    #   recode_scale: 1
+    #   joint_names:
+    #     - ur_shoulder_pan_joint
+    #     - ur_shoulder_lift_joint
+    #     - ur_elbow_joint
+    #     - ur_wrist_1_joint
+    #     - ur_wrist_2_joint
+    #     - ur_wrist_3_joint
+    #     - robotiq_85_left_knuckle_joint
+    # effort: # dim: 1*n  关节力矩（qfrc_actuator）
+    #   recode_scale: 1
+    #   joint_names:
+    #     - ur_shoulder_pan_joint
+    #     - ur_shoulder_lift_joint
+    #     - ur_elbow_joint
+    #     - ur_wrist_1_joint
+    #     - ur_wrist_2_joint
+    #     - ur_wrist_3_joint
+    #     - robotiq_85_left_knuckle_joint
+
+  # frame: # 参考系下的 TCP 位姿（state）：位置 / 欧拉角 / 四元数
+  #   position: # dim: 3*n
+  #     recode_scale: 1
+  #     frame_site: world      # 参考系：world / 其他 site 名（如 _tcp）
+  #     site_names:
+  #       - _tcp
+  #   euler: # dim: 3*n
+  #     recode_scale: 1
+  #     frame_site: world
+  #     site_names:
+  #       - _tcp
+  #   # quat: # dim: 4*n
+  #   #   recode_scale: 1
+  #   #   frame_site: world
+  #   #   site_names:
+  #   #     - _tcp
+
+  # 相机：固定按 recode_hz 记录；渲染参数（image_size/fps）定义在场景配置中；
+  # 深度范围（depth_range）在此定义，lerobot 深度图像编码器按它量化深度。
+  camera:
+    scene_config_file: configs/scenes/scene_pick_place.yaml
+    depth_range: [0.1, 2.0]      # 深度范围 (米)，用于深度编码
+
+action:
+  recode_scale: 3
+  joint:
+    recode_scale: 1
+    position:
+      recode_scale: 1
+      joint_names:
+        - ur_shoulder_pan_joint
+        - ur_shoulder_lift_joint
+        - ur_elbow_joint
+        - ur_wrist_1_joint
+        - ur_wrist_2_joint
+        - ur_wrist_3_joint
+        - robotiq_85_left_knuckle_joint
+    # velocity: # dim: 1*n
+    #   recode_scale: 1
+    #   joint_names: []
+    # effort: # dim: 1*n
+    #   recode_scale: 1
+    #   joint_names: []
+
+  # tcp: # 动作 TCP 位姿（位置 / 欧拉角 / 四元数）
+  #   position: # dim: 3*n
+  #     recode_scale: 1
+  #     type: absolute        # absolute 绝对位姿 / relative 相对变化 / velocity 速度
+  #     frame_site: world     # type=absolute 时的参考系：world / 其他 site 名
+  #     site_names:
+  #       - _tcp
+  #   euler: # dim: 3*n
+  #     recode_scale: 1
+  #     type: absolute
+  #     frame_site: world
+  #     site_names:
+  #       - _tcp
+  #   # quat: # dim: 4*n
+  #   #   recode_scale: 1
+  #   #   type: absolute
+  #   #   frame_site: world
+  #   #   site_names:
+  #   #     - _tcp

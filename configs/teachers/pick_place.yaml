@@ -1,0 +1,33 @@
+# 单臂 Pick-and-Place Scripted Teacher 配置
+# 各参数含义见 src/mujoco_lerobot/data/teachers/pick_place_teacher.py
+
+type: PickPlaceTeacher
+
+objects:
+  cube: cube            # 物块 body 名称（场景 mjcf 中）
+  plate: plate          # 盘子 body 名称
+
+grasp_quat: [0.0, 0.7071, 0.7071, 0.0]   # 夹爪朝下基础四元数 (w,x,y,z)
+
+# 阈值
+thresh:
+  approach_pos: 0.03    # 位置到达阈值 (m)
+  approach_rot: 0.1     # 姿态到达阈值 (rad)
+  grasp_dist: 0.08      # 抓取检测
+  drop_dist: 0.10       # 掉落检测
+  place_dist: 0.06      # 放置检测
+  gripper_wait: 50      # 夹爪动作等待步数
+  settle_wait: 30       # 沉降等待步数
+  max_retries: 3        # 最大重试次数
+
+# 各阶段高度偏移（相对物块/末端）
+heights:
+  above: 0.12           # 物块上方高度
+  lift: 0.10            # 抓取后提升高度
+  place: 0.08           # 放置高度
+  retreat: 0.15         # 撤退高度
+
+# 夹爪指令
+gripper:
+  open: 0.0             # 打开指令
+  close: 0.8            # 闭合指令
