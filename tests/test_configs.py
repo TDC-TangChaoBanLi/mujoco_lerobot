@@ -36,9 +36,15 @@ def test_load_scene_config_pick_place():
     assert len(sc.robots) == 1
     assert sc.robots[0].prefix == ""
     assert sc.action_dim == 7
-    assert len(sc.cameras) == 1
-    assert sc.cameras[0].width == 640
-    assert sc.cameras[0].height == 480
+    # 当前场景：全局相机 + 手眼相机（2 个）
+    assert len(sc.cameras) == 2
+    assert {c.name for c in sc.cameras} == {
+        "global_realsense_link_CAMERA",
+        "realsense_link_CAMERA",
+    }
+    for c in sc.cameras:
+        assert c.width == 640
+        assert c.height == 480
 
 
 def test_load_scene_config_dual():
@@ -155,3 +161,46 @@ def test_teacher_configs():
     tc2 = load_teacher_config(sc2.task.teacher_config_file)
     assert tc2.type == "DualPickPlaceTeacher"
     assert tc2.grasp_euler_a is not None
+
+
+def test_dataset_camera_crf_defaults():
+    """默认数据集配置：depth_crf/rgb_crf 未指定（None），视频编码走默认（深度无损、rgb CRF=30）。"""
+    dc = DatasetConfig.from_yaml("configs/dataset/dataset_pick_place.yaml")
+    assert dc.depth_crf is None
+    assert dc.rgb_crf is None
+
+    from mujoco_lerobot.data.dataset_writer import LeRobotDatasetConfig, build_video_encoders
+
+    wcfg = LeRobotDatasetConfig(repo_id="x", root="/tmp/x", fps=100, vcodec="hevc", preset=None, g=2)
+    depth_enc, rgb_enc = build_video_encoders(wcfg, dc)
+    # 深度默认无损（lossless=1）
+    assert "lossless=1" in depth_enc.extra_options.get("x265-params", "")
+    # rgb 默认 CRF=30
+    assert rgb_enc.crf == 30
+
+
+def test_dataset_camera_crf_override(tmp_path):
+    """设置 depth_crf/rgb_crf 后：深度去无损改有损 HEVC（按 CRF），rgb 用指定 CRF。"""
+    import yaml
+    from pathlib import Path
+
+    raw = yaml.safe_load(Path("configs/dataset/dataset_pick_place.yaml").read_text())
+    cam = raw["state"]["camera"]
+    cam["depth_crf"] = 30
+    cam["rgb_crf"] = 18
+    p = tmp_path / "ds_crf.yaml"
+    p.write_text(yaml.safe_dump(raw))
+
+    dc = DatasetConfig.from_yaml(str(p))
+    assert dc.depth_crf == 30
+    assert dc.rgb_crf == 18
+
+    from mujoco_lerobot.data.dataset_writer import LeRobotDatasetConfig, build_video_encoders
+
+    wcfg = LeRobotDatasetConfig(repo_id="x", root="/tmp/x", fps=100, vcodec="hevc", preset=None, g=2)
+    depth_enc, rgb_enc = build_video_encoders(wcfg, dc)
+    # 深度：去掉 lossless、改用有损 HEVC（crf=30 生效）
+    assert "lossless" not in depth_enc.extra_options.get("x265-params", "")
+    assert depth_enc.crf == 30
+    # rgb：使用指定 CRF
+    assert rgb_enc.crf == 18

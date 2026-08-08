@@ -57,6 +57,12 @@ class DatasetConfig:
     sources: list[DataSource] = field(default_factory=list)
     camera_config_file: str = ""
     depth_range: tuple[float, float] = (0.1, 2.0)
+    # 视频画质控制（CRF，越小越清晰、文件越大；None=不指定）
+    #   depth_crf: None → 深度用 lerobot 默认（无损 HEVC，不引入视频误差，但文件大）；
+    #              设置值 → 深度改用有损 HEVC，按该 CRF 压缩（文件显著变小但引入精度误差）
+    #   rgb_crf:   None → rgb 用 lerobot 默认（CRF=30）；设置值 → rgb 用该 CRF
+    depth_crf: int | None = None
+    rgb_crf: int | None = None
 
     # ── 加载 ──────────────────────────────────────────
 
@@ -77,15 +83,23 @@ class DatasetConfig:
 
         max_scale = max((s.num_subs for s in sources), default=1)
 
-        # 相机配置：记录 scene_config_file + depth_range
+        # 相机配置：记录 scene_config_file + depth_range + 画质控制（CRF）
         camera_file = ""
         depth_range = (0.1, 2.0)
+        depth_crf: int | None = None
+        rgb_crf: int | None = None
         state_cam = raw.get("state", {}).get("camera", {})
         if isinstance(state_cam, dict):
             camera_file = str(state_cam.get("scene_config_file", ""))
             dr = state_cam.get("depth_range")
             if dr and len(dr) == 2:
                 depth_range = (float(dr[0]), float(dr[1]))
+            dc = state_cam.get("depth_crf")
+            if dc is not None:
+                depth_crf = int(dc)
+            rc = state_cam.get("rgb_crf")
+            if rc is not None:
+                rgb_crf = int(rc)
 
         return cls(
             recode_hz=recode_hz,
@@ -94,6 +108,8 @@ class DatasetConfig:
             sources=sources,
             camera_config_file=camera_file,
             depth_range=depth_range,
+            depth_crf=depth_crf,
+            rgb_crf=rgb_crf,
         )
 
     @classmethod

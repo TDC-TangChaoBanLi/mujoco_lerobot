@@ -70,6 +70,13 @@ state:
   camera:
     scene_config_file: configs/scenes/scene_pick_place.yaml
     depth_range: [0.1, 2.0]      # 深度范围 (米)，用于深度编码
+    # 视频画质控制（CRF，越小越清晰、文件越大）。不设置则用默认值：
+    #   depth_crf: null → 深度用无损 HEVC（不引入视频误差，但文件大，约 rgb 的 18 倍）
+    #                设置（如 30）→ 深度改有损 HEVC，按该 CRF 压缩（约 58x 缩小，典型误差 2~6mm）
+    #   rgb_crf:   null → rgb 用 lerobot 默认 CRF=30
+    #                设置（如 18）→ rgb 用该 CRF（更高画质、文件更大）
+    depth_crf: null
+    rgb_crf: null
 
 action:
   recode_scale: 3

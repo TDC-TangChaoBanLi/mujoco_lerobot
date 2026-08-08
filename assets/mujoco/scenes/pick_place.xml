@@ -13,22 +13,31 @@
     <model name="table" file="../objects/table.xml"/>
     <model name="cube" file="../objects/cube.xml"/>
     <model name="plate" file="../objects/plate.xml"/>
+    <model name="realsense_d435" file="../robot/realsense_d435.xml"/>
     <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
   </asset>
 
   <worldbody>
+    <!-- 桌子 -->
     <body name="table_mount" pos="0.0 0 0" quat="0 0 0 1">
       <attach model="table" body="table_top" prefix=""/>
     </body>
+    <!-- RealSense D435 相机 -->
+    <body name="global_realsense_d435_mount" pos="0 0.8 1.2" euler="2.3562 0 0">
+      <attach model="realsense_d435" body="realsense_bottom_screw_frame" prefix="global_"/>
+    </body>
+    <!-- 立方体 -->
     <body name="cube_mount" pos="0.0 0 0.65">
       <freejoint/>
       <attach model="cube" body="cube" prefix=""/>
     </body>
+    <!-- 盘子 -->
     <body name="plate_mount" pos="0.0 0 0.65">
       <freejoint/>
       <attach model="plate" body="plate" prefix=""/>
     </body>
-    <body name="ur_mount" pos="-0.6 0 0.7" quat="1 0 0 0">
+    <!-- UR5 机器人 -->
+    <body name="ur_mount" pos="-0.8 0 0.7" quat="1 0 0 0">
       <attach model="ur5_full" body="ur_base_link_inertia" prefix=""/>
     </body>
     <geom name="floor" type="plane" size="0 0 0.05" rgba="0.4 0.4 0.45 1"/>

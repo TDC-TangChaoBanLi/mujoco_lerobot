@@ -36,10 +36,10 @@ robot:
 
 # ── 视角（评估可视化 / 数据采集初始视角 / eval 视频渲染）──
 view:
-  lookat: [0.45, 0.0, 0.65]
-  distance: 2.2
+  lookat: [0.0, 0.0, 0.65]
+  distance: 1.8
   elevation: -30.0
-  azimuth: 130.0
+  azimuth: 135.0
   image_size: [640, 480]      # eval 视频分辨率 (W, H)
 
 # ── 相机 ──

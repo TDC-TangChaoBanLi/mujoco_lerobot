@@ -22,14 +22,18 @@ robot:
 
 # ── 视角（评估可视化 / 数据采集初始视角 / eval 视频渲染）──
 view:
-  lookat: [0.45, 0.0, 0.65]   # 相机注视点
+  lookat: [0.0, 0.0, 0.65]   # 相机注视点
   distance: 1.8               # 相机距离
-  elevation: -25.0            # 俯仰角（度）
-  azimuth: 130.0              # 方位角（度）
+  elevation: -30.0            # 俯仰角（度）
+  azimuth: 135.0              # 方位角（度）
   image_size: [640, 480]      # eval 视频分辨率 (W, H)
 
 # ── 相机 ──
 camera:
+  - name: "global_realsense_link_CAMERA"
+    fps: 30
+    image_size: [640, 480]
+    type: "rgb_depth"
   - name: "realsense_link_CAMERA"   # 与 mjcf 中的 camera name 一致
     fps: 30                          # 相机渲染帧率
     image_size: [640, 480]           # 图像尺寸 (W, H)

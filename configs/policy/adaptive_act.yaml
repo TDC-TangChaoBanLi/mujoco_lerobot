@@ -16,16 +16,16 @@ policy:
   # 输入特征：pick_place 数据集含 rgb(3ch) 与 depth(1ch) 两个 VISUAL 特征。
   # 二者通过下方 concat_visual_features 沿通道维拼成 4 通道 RGBD 再送入 backbone
   # （conv1 自动适配 4 通道）；无需再单独指定 image_channels。
-  input_features:
-    observation.state:
-      type: STATE
-      shape: [7]
-    observation.images.realsense_link_CAMERA.rgb:
-      type: VISUAL
-      shape: [3, 480, 640]
-    observation.images.realsense_link_CAMERA.depth:
-      type: VISUAL
-      shape: [1, 480, 640]
+  # input_features:
+  #   observation.state:
+  #     type: STATE
+  #     shape: [7]
+  #   observation.images.realsense_link_CAMERA.rgb:
+  #     type: VISUAL
+  #     shape: [3, 480, 640]
+  #   observation.images.realsense_link_CAMERA.depth:
+  #     type: VISUAL
+  #     shape: [1, 480, 640]
 
   # 视觉特征通道拼接：把同一相机的 rgb+depth 拼成 4 通道 RGBD 视图，
   # 被拼接的源特征不再单独送入 backbone。
@@ -35,13 +35,15 @@ policy:
     observation.images.realsense_link_CAMERA.rgbd:
       - observation.images.realsense_link_CAMERA.rgb
       - observation.images.realsense_link_CAMERA.depth
-
+    observation.images.global_realsense_link_CAMERA.rgbd:
+      - observation.images.global_realsense_link_CAMERA.rgb
+      - observation.images.global_realsense_link_CAMERA.depth
   # 相机分组：pick_place 仅 1 个相机，留空（null）时所有相机共用一个 resnet18，
   # 等价原生 ACT 的单 backbone。
   # 多相机示例（如双臂 3 相机：两个手眼 + 一个全局）：
-  #   camera_backbone_groups:
-  #     hand: [camera_left, camera_right]   # 两个手眼相机共用一个 resnet18
-  #     global: [camera_top]                # 全局相机用另一个 resnet18
+  camera_backbone_groups:
+    hand: [realsense_link_CAMERA]               # 手眼相机共用一个 resnet18
+    global: [global_realsense_link_CAMERA]      # 全局相机用另一个 resnet18
   # 未出现在任何组的相机自动归入共享默认组。
   # camera_backbone_groups: null
 

@@ -43,8 +43,16 @@ class ResetManager:
             if jid is not None:
                 self._object_qposadr[name] = int(mj.model.jnt_qposadr[jid])
 
-    def reset(self, *, randomize_objects: bool = True) -> None:
-        """完整重置流程：mj_resetData → 臂到位 → 随机化物体 → 同步 ctrl → forward。"""
+    def reset(self, *, randomize_objects: bool = True, rng=None) -> None:
+        """完整重置流程：mj_resetData → 臂到位 → 随机化物体 → 同步 ctrl → forward。
+
+        Args:
+            randomize_objects: 是否随机化物体位姿。
+            rng: 用于物体随机化的 RNG（``np.random.Generator`` 或 ``np.random`` 模块）；
+                ``None`` 时使用全局 ``np.random``（默认，与数据采集链路一致）。
+                评估 env 传入 per-env 的 ``self._np_random``，使 ``env.reset(seed)``
+                真正控制随机化（gym 语义）。
+        """
         mujoco.mj_resetData(self.mj.model, self.mj.data)
 
         ctrl = self.mj.get_ctrl()
@@ -59,18 +67,19 @@ class ResetManager:
         self.mj.set_ctrl(ctrl)
 
         if randomize_objects:
-            self._randomize_objects()
+            self._randomize_objects(rng)
 
         mujoco.mj_forward(self.mj.model, self.mj.data)
 
-    def _randomize_objects(self) -> None:
+    def _randomize_objects(self, rng=None) -> None:
+        rng = rng if rng is not None else np.random
         for obj_name, rand in self.objects.items():
             adr = self._object_qposadr.get(obj_name)
             if adr is None:
                 continue
-            x = np.random.uniform(*rand.x_range)
-            y = np.random.uniform(*rand.y_range)
-            z = np.random.uniform(*rand.z_range)
+            x = rng.uniform(*rand.x_range)
+            y = rng.uniform(*rand.y_range)
+            z = rng.uniform(*rand.z_range)
             self.mj.data.qpos[adr : adr + 3] = [x, y, z]
 
             has_rot = (
@@ -79,9 +88,9 @@ class ResetManager:
                 or rand.yaw_range != (0.0, 0.0)
             )
             if has_rot:
-                roll = np.random.uniform(*rand.roll_range)
-                pitch = np.random.uniform(*rand.pitch_range)
-                yaw = np.random.uniform(*rand.yaw_range)
+                roll = rng.uniform(*rand.roll_range)
+                pitch = rng.uniform(*rand.pitch_range)
+                yaw = rng.uniform(*rand.yaw_range)
                 quat = np.empty(4)
                 mujoco.mju_euler2Quat(quat, [roll, pitch, yaw], "XYZ")
                 self.mj.data.qpos[adr + 3 : adr + 7] = quat  # [qw, qx, qy, qz]

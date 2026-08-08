@@ -62,15 +62,15 @@ class MujocoLerobotEnv(gym.Env):
         self,
         task_name: str = "pick_place",
         dataset_config: str = "configs/dataset/dataset_pick_place.yaml",
-        render_mode: str | None = None,
+        use_viewer: bool = False,
         max_episode_steps: int | None = None,
     ) -> None:
         super().__init__()
         self._task_name = task_name
         self._dataset_config_path = str(dataset_config)
-        self._render_mode = render_mode
+        self._use_viewer = use_viewer
         self._max_episode_steps = (
-            max_episode_steps if max_episode_steps is not None else 300
+            max_episode_steps if max_episode_steps is not None else 1500
         )
 
         # 配置（惰性加载模型）
@@ -139,10 +139,9 @@ class MujocoLerobotEnv(gym.Env):
         if self._mj is not None:
             return
 
-        use_viewer = self._render_mode == "human"
-        self._mj = MujocoWrapper(self._scene_cfg.task.scene_path, render=use_viewer)
+        self._mj = MujocoWrapper(self._scene_cfg.task.scene_path, render=self._use_viewer)
         self._mj.open()
-        if use_viewer:
+        if self._use_viewer:
             v = self._scene_cfg.view
             self._mj.set_viewer_camera(
                 v.lookat, v.distance, v.elevation, v.azimuth,
@@ -213,8 +212,9 @@ class MujocoLerobotEnv(gym.Env):
         self._ensure_env()
         self._step_count = 0
 
-        # 与数据采集一致：mj_resetData → 机械臂到位 → 物体随机化 → forward
-        self._reset_mgr.reset(randomize_objects=True)
+        # 物体随机化由 per-env RNG 控制（gym reset(seed) 语义）：同 seed 可复现，
+        # 不同 env/episode 由不同 seed 区分；评估时每个 episode 由 seed+idx 决定。
+        self._reset_mgr.reset(randomize_objects=True, rng=self._np_random)
 
         obs = self._collect_obs()
         return obs, {}
@@ -239,7 +239,7 @@ class MujocoLerobotEnv(gym.Env):
     # 渲染 eval 视频回调
     def render(self) -> np.ndarray | None:
         self._ensure_env()
-        if self._render_mode == "human":
+        if self._use_viewer:
             self._mj.sync_viewer()
             return None
         # 用场景 view 配置的自由视角渲染 RGB (H, W, 3)，供 eval 录制视频使用

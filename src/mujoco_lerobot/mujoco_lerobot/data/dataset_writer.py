@@ -31,6 +31,38 @@ for _name in ("lerobot", "datasets", "PIL", "torchvision", "ffmpeg", "av", "x265
 log = logging.getLogger(__name__)
 
 
+def build_video_encoders(
+    config: "LeRobotDatasetConfig", dataset_cfg: DatasetConfig | None,
+) -> tuple[DepthEncoderConfig, RGBEncoderConfig]:
+    """按配置构建 rgb/depth 视频编码器（含画质 CRF 控制）。
+
+    - depth：米制量化范围来自 ``dataset_cfg.depth_range``；
+      ``depth_crf`` 未指定（None）→ lerobot 默认（无损 HEVC，lossless=1，不引入视频误差）；
+      指定 → 去掉 lossless、改有损 HEVC，按该 CRF 压缩（文件显著变小但引入精度误差）。
+    - rgb：``rgb_crf`` 未指定（None）→ lerobot 默认（CRF=30）；指定 → 用该 CRF。
+    """
+    # 深度量化范围（米制）
+    depth_min, depth_max = (0.1, 2.0)
+    if dataset_cfg is not None and dataset_cfg.depth_range:
+        depth_min, depth_max = dataset_cfg.depth_range
+
+    depth_crf = dataset_cfg.depth_crf if dataset_cfg is not None else None
+    if depth_crf is None:
+        depth_encoder = DepthEncoderConfig(depth_min=depth_min, depth_max=depth_max)
+    else:
+        depth_encoder = DepthEncoderConfig(
+            depth_min=depth_min, depth_max=depth_max,
+            crf=depth_crf, extra_options={},
+        )
+
+    rgb_crf = dataset_cfg.rgb_crf if dataset_cfg is not None else None
+    rgb_kwargs: dict = dict(vcodec=config.vcodec, preset=config.preset, g=config.g)
+    if rgb_crf is not None:
+        rgb_kwargs["crf"] = rgb_crf
+    rgb_encoder = RGBEncoderConfig(**rgb_kwargs)
+    return depth_encoder, rgb_encoder
+
+
 @contextlib.contextmanager
 def _quiet_stderr():
     """抑制 ffmpeg/lerobot 的 stderr 噪音。"""
@@ -91,17 +123,7 @@ class LeRobotDatasetWriter:
         if overwrite and root.exists():
             shutil.rmtree(root)
 
-        # 深度编码参数（米制，来自 dataset 配置或相机配置）
-        depth_min, depth_max = (0.1, 2.0)
-        if dataset_cfg is not None and dataset_cfg.depth_range:
-            depth_min, depth_max = dataset_cfg.depth_range
-        depth_encoder = DepthEncoderConfig(depth_min=depth_min, depth_max=depth_max)
-
-        rgb_encoder = RGBEncoderConfig(
-            vcodec=config.vcodec,
-            preset=config.preset,
-            g=config.g,
-        )
+        depth_encoder, rgb_encoder = build_video_encoders(config, dataset_cfg)
 
         if dataset_cfg is not None:
             features = dataset_cfg.build_features(config.cameras)

@@ -53,14 +53,15 @@ def test_camera_renderer(pick_place_env):
     mj.forward()
     cr = CameraRenderer(sc.cameras, mj.model, mj.data)
     frames = cr.render_all(mj.data)
-    assert len(frames) == 1
-    f = frames[0]
-    assert f.rgb.shape == (480, 640, 3)
-    assert f.rgb.dtype == np.uint8
-    assert f.depth.shape == (480, 640)
-    assert f.depth.dtype == np.float32
-    # 深度应包含近处物体（<2m 有占比），而非全远平面
-    assert (f.depth < 2.0).mean() > 0.01
+    # 当前场景：全局相机 + 手眼相机（2 个）
+    assert len(frames) == 2
+    for f in frames:
+        assert f.rgb.shape == (480, 640, 3)
+        assert f.rgb.dtype == np.uint8
+        assert f.depth.shape == (480, 640)
+        assert f.depth.dtype == np.float32
+        # 深度应包含近处物体（<2m 有占比），而非全远平面
+        assert (f.depth < 2.0).mean() > 0.01
     cr.close()
 
 
@@ -174,7 +175,7 @@ def test_env_render_fps_matches_recode_hz():
 def test_scene_view_config():
     """场景配置可指定 viewer 视角参数（评估/采集初始视角）。"""
     sc = load_scene_config("pick_place", "configs/tasks/tasks.yaml")
-    assert sc.view.lookat == (0.45, 0.0, 0.65)
+    assert sc.view.lookat == (0.0, 0.0, 0.65)
     assert sc.view.distance > 0
     assert sc.view.image_size == (640, 480)
     sc_dual = load_scene_config("dual_pick_place", "configs/tasks/tasks.yaml")
@@ -374,3 +375,28 @@ def test_auto_depth_output_unit_follows_recorded_unit():
     assert ds.depth_output_unit == "m"
     dep = np.asarray(ds[0]["observation.images.realsense_link_CAMERA.depth"]).astype(np.float32)
     assert 0.1 < float(dep.mean()) < 2.0  # 米量级（若是 mm 会 ~数百）
+
+
+def test_env_reset_seed_controls_object_randomization():
+    """env.reset(seed) 真正控制物体随机化（gym 语义）：同 seed 可复现、不同 seed 不同。"""
+    from lerobot_env_mujoco_lerobot import MujocoLerobotEnv
+
+    env = MujocoLerobotEnv(
+        task_name="pick_place",
+        dataset_config="configs/dataset/dataset_pick_place.yaml",
+    )
+
+    def cube_xy():
+        mj = env._mj  # reset 后惰性初始化
+        return mj.data.xpos[mj._body_ids["cube"]][:2].copy()
+
+    env.reset(seed=1000)
+    a = cube_xy()
+    env.reset(seed=1000)
+    b = cube_xy()
+    assert np.allclose(a, b), "同 seed reset 应可复现"
+
+    env.reset(seed=1001)
+    c = cube_xy()
+    assert not np.allclose(a, c), "不同 seed 应得到不同随机化"
+    env.close()

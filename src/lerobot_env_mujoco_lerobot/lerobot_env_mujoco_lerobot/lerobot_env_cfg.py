@@ -6,7 +6,7 @@
         --env.dataset_config=configs/dataset/dataset_pick_place.yaml \\
         --policy.path=...
     # 可视化评估（打开 MuJoCo viewer）:
-        --env.render_mode=human
+        --env.use_viewer=true
 
 环境产出 gym 风格键（state.* / images.*），lerobot 的通用 preprocess_observation
 会自动补上 `observation.` 前缀，features_map 亦将键映射到 observation.*。
@@ -153,7 +153,8 @@ class MujocoLerobotEnvConfig(EnvConfig):
 
     task: str = "pick_place"
     dataset_config: str = "configs/dataset/dataset_pick_place.yaml"
-    render_mode: str | None = None
+    # 是否打开 MuJoCo viewer（可视化评估）；默认 False（无头，render() 返回 RGB 供录视频）
+    use_viewer: bool = False
     max_episode_steps: int | None = None
     fps: int = 30
     # 深度输出单位：env 产出米制 depth，此值须与训练 `dataset.depth_output_unit`
@@ -175,7 +176,7 @@ class MujocoLerobotEnvConfig(EnvConfig):
         return {
             "task_name": self.task,
             "dataset_config": self.dataset_config,
-            "render_mode": self.render_mode,
+            "use_viewer": self.use_viewer,
             "max_episode_steps": self.max_episode_steps,
         }
 
@@ -184,8 +185,8 @@ class MujocoLerobotEnvConfig(EnvConfig):
         n_envs: int,
         use_async_envs: bool = False,
     ) -> dict[str, dict[int, gym.vector.VectorEnv]]:
-        """创建 VectorEnv。render_mode=human 时强制单环境（viewer 只能一个）。"""
-        use_human = self.render_mode == "human"
+        """创建 VectorEnv。use_viewer=True 时强制单环境（viewer 只能一个）。"""
+        use_human = self.use_viewer
         use_async = use_async_envs and n_envs > 1 and not use_human
         env_cls = (
             gym.vector.AsyncVectorEnv if use_async else gym.vector.SyncVectorEnv

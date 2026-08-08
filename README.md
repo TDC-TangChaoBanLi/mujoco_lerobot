@@ -221,14 +221,19 @@ uv run lerobot-eval \
     --env.task=pick_place \
     --env.dataset_config=configs/dataset/dataset_pick_place.yaml \
     --policy.path=outputs/train/adaptive_act_pick_place/checkpoints/last/pretrained_model \
-    --eval.n_episodes=5
+    --eval.n_episodes=5 \
+    --eval.batch_size=1
+```
+
 
 # 可视化评估（打开 MuJoCo viewer，需要真实桌面显示环境）
+
+```bash
 uv run lerobot-eval \
     --env.type=mujoco_lerobot \
     --env.task=pick_place \
     --env.dataset_config=configs/dataset/dataset_pick_place.yaml \
-    --env.render_mode=human \
+    --env.use_viewer=true \
     --policy.path=outputs/train/adaptive_act_pick_place/checkpoints/last/pretrained_model
 ```
 
@@ -258,6 +263,11 @@ uv run lerobot-eval \
   注意：`info.json` 的 `depth_unit` 只声明**记录单位**（采集写入时，确为米）；
   lerobot 训练解码单位是独立的 `dataset.depth_output_unit`（默认 `"mm"`），本项目
   通过补丁让训练自动跟随记录单位（见 `lerobot_env_mujoco_lerobot/patches.py`）。
+- **物体随机化与 seed**：`MujocoLerobotEnv.reset(seed=...)` 会真正用该 seed 控制
+  物体随机化（gym 语义）：同 seed 两次 reset 结果相同，不同 seed 不同。评估时
+  `lerobot-eval` 为每个 episode 用 `seed + episode_index` 播种，因此各 episode
+  随机化不同、且同一 episode 跨次评估可复现；若想换一组随机化，改 `--eval.seed`
+  （或 `cfg.seed`）即可。
 
 ### 自适应 ACT 策略（`adaptive_act`）
 
