@@ -308,7 +308,8 @@ class DatasetConfig:
                 "dtype": "video",
                 "shape": (1, cam.height, cam.width),
                 "names": ["channel", "height", "width"],
-                "info": {"is_depth_map": True},
+                # 显式记录深度单位：MuJoCo 渲染米制，info.json 将写入 depth_unit="m"
+                "info": {"is_depth_map": True, "depth_unit": "m"},
             }
         return features
 
@@ -348,7 +349,8 @@ class DatasetConfig:
                 "dtype": "video",
                 "shape": (1, cam.height, cam.width),
                 "names": ["channel", "height", "width"],
-                "info": {"is_depth_map": True},
+                # 显式记录深度单位：MuJoCo 渲染米制，info.json 将写入 depth_unit="m"
+                "info": {"is_depth_map": True, "depth_unit": "m"},
             }
         return features
 

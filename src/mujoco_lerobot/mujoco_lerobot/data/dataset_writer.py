@@ -19,6 +19,7 @@ from typing import Any, Callable
 import numpy as np
 
 from lerobot.configs import DepthEncoderConfig, RGBEncoderConfig
+from lerobot.datasets.dataset_metadata import CODEBASE_VERSION, LeRobotDatasetMetadata
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from ..configs.dataset_config import DatasetConfig
@@ -150,6 +151,187 @@ class LeRobotDatasetWriter:
             dataset = LeRobotDataset.create(**kwargs)
         return cls(dataset, config, dataset_cfg=dataset_cfg)
 
+    @classmethod
+    def resume(
+        cls,
+        config: LeRobotDatasetConfig,
+        dataset_cfg: DatasetConfig | None = None,
+        *,
+        check_compatibility: bool = True,
+    ) -> "LeRobotDatasetWriter":
+        """在已有数据集上追加 episode（补充数据）。
+
+        - 打开已有数据集（root 必须存在），episode 编号从已有数量继续；
+        - 追加前默认执行配置一致性检查（fps / features / 深度单位 / 编码参数），
+          与已有数据集不一致时抛 ValueError，拒绝追加；
+        - 用 ``LeRobotDataset.resume()`` 进入写模式，后续流式回调与 create_new 完全一致。
+        """
+        root = config.resolved_root()
+        if not root.exists():
+            raise FileNotFoundError(
+                f"要追加的数据集不存在: {root}（请确认 --append 指向已有数据集目录）"
+            )
+
+        # 加载已有数据集元数据（info.json）用于一致性检查
+        meta = LeRobotDatasetMetadata(
+            repo_id=config.repo_id,
+            root=root,
+            revision=CODEBASE_VERSION,
+        )
+        if check_compatibility:
+            cls._check_compatibility(meta, config, dataset_cfg)
+
+        depth_encoder, rgb_encoder = build_video_encoders(config, dataset_cfg)
+
+        kwargs = dict(
+            repo_id=config.repo_id,
+            root=root,
+            rgb_encoder=rgb_encoder,
+            depth_encoder=depth_encoder,
+            streaming_encoding=bool(config.streaming_encoding),
+            batch_encoding_size=int(config.batch_encoding_size),
+            encoder_threads=config.encoder_threads,
+            encoder_queue_maxsize=int(config.encoder_queue_maxsize),
+            image_writer_threads=int(config.image_writer_threads),
+            image_writer_processes=int(config.image_writer_processes),
+        )
+
+        with _quiet_stderr():
+            dataset = LeRobotDataset.resume(**kwargs)
+        return cls(dataset, config, dataset_cfg=dataset_cfg)
+
+    # ── 追加一致性检查 ─────────────────────────────────
+
+    @classmethod
+    def _check_compatibility(
+        cls,
+        meta: LeRobotDatasetMetadata,
+        config: LeRobotDatasetConfig,
+        dataset_cfg: DatasetConfig | None,
+    ) -> None:
+        """校验已有数据集与当前采集配置一致，不一致抛 ValueError。
+
+        对比内容：
+          - 硬性（不一致即拒绝追加）：fps、features 键 / dtype / shape / names、
+            is_depth_map、depth_unit（本项目硬性约定为米）、
+            深度量化范围（depth_min/depth_max/shift/use_log）、
+            深度 lossless（extra_options）、crf（画质）
+          - 软性（仅警告）：codec——用户配置为 ``auto`` 时，实际解析出的
+            codec（如 h264 vs h264_nvenc）随环境/时刻变化，不作为不一致依据。
+        """
+        problems: list[str] = []
+        warnings: list[str] = []
+
+        # ── fps ──
+        expect_fps = int(config.fps)
+        if meta.fps != expect_fps:
+            problems.append(f"fps: 已有={meta.fps}, 当前配置={expect_fps}")
+
+        # ── 期望 features（与 create_new 完全一致的构造路径）──
+        if dataset_cfg is not None:
+            expect_features = dataset_cfg.build_features(config.cameras)
+        else:
+            expect_features = cls._default_features(config)
+        depth_enc, rgb_enc = build_video_encoders(config, dataset_cfg)
+
+        exist_features = meta.features
+        missing = set(expect_features) - set(exist_features)
+        if missing:
+            problems.append(f"已有数据集缺少 features: {sorted(missing)}")
+
+        for key in sorted(set(expect_features) & set(exist_features)):
+            ef = expect_features[key]
+            af = exist_features[key]
+            # dtype / shape / names（shape 归一化 tuple 对比）
+            for field in ("dtype", "shape", "names"):
+                ev, av = ef.get(field), af.get(field)
+                if field == "shape":
+                    ev = tuple(ev) if ev is not None else None
+                    av = tuple(av) if av is not None else None
+                if ev != av:
+                    problems.append(
+                        f"feature {key!r}.{field}: 已有={av}, 期望={ev}"
+                    )
+            # 视频特征编码参数
+            if ef.get("dtype") == "video":
+                cls._check_video_info(
+                    key, af.get("info") or {}, ef,
+                    depth_enc, rgb_enc, problems, warnings,
+                )
+
+        for w in warnings:
+            log.warning(f"[追加兼容性-软性] {w}")
+
+        if problems:
+            raise ValueError(
+                "数据集配置与已有数据集不一致，拒绝追加:\n  - "
+                + "\n  - ".join(problems)
+                + "\n请使用与采集该数据集时一致的 --dataset-config 配置，"
+                  "或改用 --overwrite 重新采集。"
+            )
+
+    @staticmethod
+    def _check_video_info(
+        key: str,
+        exist_info: dict[str, Any],
+        expect_feature: dict[str, Any],
+        depth_enc: DepthEncoderConfig,
+        rgb_enc: RGBEncoderConfig,
+        problems: list[str],
+        warnings: list[str],
+    ) -> None:
+        """对比单个视频特征的编码/深度信息。
+
+        ``problems``（硬性，阻止追加）与 ``warnings``（软性，仅提示）分开收集。
+        """
+        is_depth = bool(expect_feature.get("info", {}).get("is_depth_map")) or key.endswith(".depth")
+        enc = depth_enc if is_depth else rgb_enc
+
+        # is_depth_map 标志
+        e_isdm = bool(exist_info.get("is_depth_map"))
+        if e_isdm != is_depth:
+            problems.append(
+                f"feature {key!r}.is_depth_map: 已有={e_isdm}, 期望={is_depth}"
+            )
+
+        # 深度单位（本项目硬性约定为米）
+        if is_depth:
+            eu = exist_info.get("depth_unit")
+            if eu != "m":
+                problems.append(
+                    f"feature {key!r}.depth_unit: 已有={eu!r}, 期望='m'"
+                )
+
+        # 编码器参数（缺省不报，避免 auto 解析字段误报）
+        codec = exist_info.get("video.codec")
+        if codec is not None and codec != enc.vcodec:
+            # codec 差异多为 vcodec="auto" 的解析差异（如 h264 vs h264_nvenc），
+            # 语义兼容，仅软性提示，不阻止追加。
+            warnings.append(
+                f"feature {key!r}.video.codec: 已有={codec}, 当前解析={enc.vcodec} "
+                f"（可能为 auto 解析差异，追加仍兼容）"
+            )
+        crf = exist_info.get("video.crf")
+        if crf is not None and crf != enc.crf:
+            problems.append(
+                f"feature {key!r}.video.crf: 已有={crf}, 期望={enc.crf}"
+            )
+        extra = exist_info.get("video.extra_options")
+        if extra is not None and extra != enc.extra_options:
+            problems.append(
+                f"feature {key!r}.video.extra_options: 已有={extra}, 期望={enc.extra_options}"
+            )
+
+        # 深度量化参数
+        if is_depth:
+            for field in ("depth_min", "depth_max", "shift", "use_log"):
+                ev = exist_info.get(f"video.{field}")
+                wv = getattr(enc, field)
+                if ev is not None and ev != wv:
+                    problems.append(
+                        f"feature {key!r}.video.{field}: 已有={ev}, 期望={wv}"
+                    )
+
     # ── 流式回调 ───────────────────────────────────────
 
     @staticmethod
@@ -167,7 +349,8 @@ class LeRobotDatasetWriter:
                 features[f"{prefix}.depth"] = {
                     "dtype": "video", "shape": (1, cam.height, cam.width),
                     "names": ["channel", "height", "width"],
-                    "info": {"is_depth_map": True},
+                    # 显式记录深度单位：MuJoCo 渲染米制，info.json 将写入 depth_unit="m"
+                    "info": {"is_depth_map": True, "depth_unit": "m"},
                 }
         return features
 

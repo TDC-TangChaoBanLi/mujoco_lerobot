@@ -19,6 +19,15 @@
         --dataset-config configs/dataset/dataset_dual_pick_place.yaml \
         --mode keyboard
 
+    # 补充数据：在已有数据集上追加 episodes（先校验配置一致，不一致会报错）
+    uv run python scripts/collect_data.py \
+        --task-config configs/tasks/tasks.yaml \
+        --task pick_place \
+        --dataset-config configs/dataset/dataset_pick_place.yaml \
+        --append outputs/datasets/pick_place/20260808_184250 \
+        --episodes 20 \
+        --no-render
+
 键盘控制（keyboard 模式）：
     W/S A/D R/F    x / y / z 平移
     方向键 Q/E     俯仰/偏航
@@ -68,41 +77,48 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--task", required=True, help="任务名（--task list 列出所有）")
     p.add_argument("--dataset-config", default=None,
                    help="数据集记录格式配置文件路径（--task list 时不需要）")
-    p.add_argument("--mode", choices=["auto", "keyboard"], default="auto",
+    p.add_argument("--mode", choices=["teacher", "keyboard"], default="teacher",
                    help="采集模式")
     p.add_argument("--episodes", type=int, default=50, help="目标 episode 数")
     p.add_argument("--max-time", type=float, default=None,
                    help="每 episode 仿真时间上限（秒），默认取 simulate_default 配置")
     p.add_argument("--output", default="outputs/datasets", help="输出根目录")
+    p.add_argument("--append", default=None, metavar="DIR",
+                   help="补充数据：在已有数据集目录上追加 episodes"
+                        "（追加前校验当前配置与原有记录配置一致）")
     p.add_argument("--no-render", action="store_true", help="无头模式（不打开 viewer）")
     p.add_argument("--overwrite", action="store_true", help="覆盖已存在的输出目录")
     return p.parse_args()
 
 
 def build_writer(args, scene_cfg, dataset_cfg) -> LeRobotDatasetWriter:
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    root = Path(args.output) / scene_cfg.task.name / ts
-    root = root.resolve()
-
     wcfg = LeRobotDatasetConfig(
         repo_id=f"mujoco_{scene_cfg.task.name}",
-        root=root,
+        root=None,  # 下方按模式填充
         fps=int(round(dataset_cfg.recode_hz)),
         cameras=scene_cfg.cameras,
     )
-    writer = LeRobotDatasetWriter.create_new(
+
+    if args.append:
+        # 补充数据：在已有数据集上追加（先做配置一致性检查，不一致会抛错）
+        wcfg.root = Path(args.append).expanduser().resolve()
+        return LeRobotDatasetWriter.resume(wcfg, dataset_cfg=dataset_cfg)
+
+    # 新建数据集：时间戳子目录
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    wcfg.root = (Path(args.output) / scene_cfg.task.name / ts).resolve()
+    return LeRobotDatasetWriter.create_new(
         wcfg, dataset_cfg=dataset_cfg, overwrite=args.overwrite
     )
-    return writer
 
 
-def collect_auto(
+def collect_teacher(
     args,
     scene_cfg,
     dataset_cfg,
     writer,
 ) -> None:
-    """自动采集：scripted teacher 反复采集，成功保存，失败重试。"""
+    """教师采集：scripted teacher 反复采集，成功保存，失败重试。"""
     teacher_cfg = load_teacher_config(scene_cfg.task.teacher_config_file)
     mgr = SimulationManager(scene_cfg, dataset_cfg, render=not args.no_render)
     ctrl = ScriptedTeacherController(scene_cfg, teacher_cfg, mgr.model, mgr.data)
@@ -258,9 +274,15 @@ def main() -> None:
         print(f"  [warn] {w}")
 
     writer = build_writer(args, scene_cfg, dataset_cfg)
+    if args.append:
+        n_existing = writer.dataset.meta.total_episodes
+        print(f"  追加模式: 已有 {n_existing} episodes, "
+              f"本次新增 {args.episodes} → 目标 {n_existing + args.episodes}")
+    else:
+        print(f"  新建数据集 → {writer.config.resolved_root()}")
     try:
-        if args.mode == "auto":
-            collect_auto(args, scene_cfg, dataset_cfg, writer)
+        if args.mode == "teacher":
+            collect_teacher(args, scene_cfg, dataset_cfg, writer)
         else:
             collect_keyboard(args, scene_cfg, dataset_cfg, writer)
     finally:

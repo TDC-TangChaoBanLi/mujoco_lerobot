@@ -131,17 +131,22 @@ class AdaptiveACTConfig(PreTrainedConfig):
                 raise ValueError(
                     f"`concat_visual_features[{view!r}]` must list at least one source feature."
                 )
+            # 视图键不能与 input_features 中的键冲突（仅当显式提供 input_features 时校验）。
             if view in (self.input_features or {}):
                 raise ValueError(
                     f"`concat_visual_features` 视图键 {view!r} 与 input_features 中的键冲突。"
                 )
-            for src in sources:
-                ft = (self.input_features or {}).get(src)
-                if ft is None or ft.type is not FeatureType.VISUAL:
-                    raise ValueError(
-                        f"`concat_visual_features[{view!r}]` 引用的源特征 {src!r} 必须是 "
-                        f"input_features 中的 VISUAL 特征。"
-                    )
+            # 源特征校验：若 input_features 为空（即从数据集自动推断，LeRobot 标准工作流），
+            # 此时尚无特征信息，推迟到 validate_features()（模型构建时 input_features 已填充）
+            # 再校验，避免配置实例化阶段误报。
+            if self.input_features:
+                for src in sources:
+                    ft = self.input_features.get(src)
+                    if ft is None or ft.type is not FeatureType.VISUAL:
+                        raise ValueError(
+                            f"`concat_visual_features[{view!r}]` 引用的源特征 {src!r} 必须是 "
+                            f"input_features 中的 VISUAL 特征。"
+                        )
 
     def get_optimizer_preset(self) -> AdamWConfig:
         return AdamWConfig(
@@ -153,6 +158,26 @@ class AdaptiveACTConfig(PreTrainedConfig):
         return None
 
     def validate_features(self) -> None:
+        # 模型构建时调用（input_features 已从数据集自动推断）。若仍未填充则跳过校验。
+        if not self.input_features:
+            return
+
+        # 校验 concat_visual_features：视图键不冲突、源特征必须是在 input_features 中
+        # 存在的 VISUAL 特征（__post_init__ 阶段因 input_features 可能为空而推迟到这里）。
+        concat = self.concat_visual_features or {}
+        for view, sources in concat.items():
+            if view in self.input_features:
+                raise ValueError(
+                    f"`concat_visual_features` 视图键 {view!r} 与 input_features 中的键冲突。"
+                )
+            for src in sources:
+                ft = self.input_features.get(src)
+                if ft is None or ft.type is not FeatureType.VISUAL:
+                    raise ValueError(
+                        f"`concat_visual_features[{view!r}]` 引用的源特征 {src!r} 必须是 "
+                        f"input_features 中的 VISUAL 特征。"
+                    )
+
         if not self.image_features and not self.env_state_feature:
             raise ValueError(
                 "You must provide at least one image or the environment state among the inputs."

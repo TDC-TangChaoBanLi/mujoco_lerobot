@@ -12,10 +12,11 @@
 # ── 策略（adaptive_act）────────────────────────────────────
 policy:
   type: adaptive_act
+  push_to_hub: false
 
-  # 输入特征：pick_place 数据集含 rgb(3ch) 与 depth(1ch) 两个 VISUAL 特征。
-  # 二者通过下方 concat_visual_features 沿通道维拼成 4 通道 RGBD 再送入 backbone
-  # （conv1 自动适配 4 通道）；无需再单独指定 image_channels。
+  # 输入特征：必须声明 concat_visual_features 引用的所有源特征（本项目两相机
+  # 各含 rgb(3ch) 与 depth(1ch) 两个 VISUAL，下方拼成 4 通道 RGBD 送 backbone；
+  # conv1 自动适配 4 通道，无需再指定 image_channels）。
   # input_features:
   #   observation.state:
   #     type: STATE
@@ -24,6 +25,12 @@ policy:
   #     type: VISUAL
   #     shape: [3, 480, 640]
   #   observation.images.realsense_link_CAMERA.depth:
+  #     type: VISUAL
+  #     shape: [1, 480, 640]
+  #   observation.images.global_realsense_link_CAMERA.rgb:
+  #     type: VISUAL
+  #     shape: [3, 480, 640]
+  #   observation.images.global_realsense_link_CAMERA.depth:
   #     type: VISUAL
   #     shape: [1, 480, 640]
 
@@ -81,15 +88,15 @@ policy:
   # push_to_hub: false
 
 # ── 数据集 ────────────────────────────────────────────────
-# dataset:
-#   repo_id: mujoco_pick_place
-#   # 按实际采集的时间戳目录覆盖（configs/dataset/dataset_pick_place.yaml 为记录格式，
-#   # 这里是已采集的数据目录）
-#   root: outputs/datasets/pick_place/20260806_004855
-#   # 深度解码输出单位：env 产出米。默认无需显式指定——已安装补丁会自动跟随数据集
-#   # info.json 记录的单位（depth_unit="m"，与 env 一致，见 lerobot_env_mujoco_lerobot
-#   # 的 patches.py）。此处显式保留 "m" 作为兜底/文档；若确需覆盖请显式设置。
-#   depth_output_unit: m
+dataset:
+  # repo_id: mujoco_pick_place
+  # 按实际采集的时间戳目录覆盖（configs/dataset/dataset_pick_place.yaml 为记录格式，
+  # 这里是已采集的数据目录）；命令行 --dataset.root=... 可覆盖
+  # root: outputs/datasets/pick_place/20260806_004855
+  # 深度解码输出单位：本项目统一为米。记录侧采集时在 features info 里显式写入
+  # depth_unit="m"（info.json 记录单位），此处训练侧显式设为 "m" 与之对齐，并与
+  # 评估 env（米）一致。无需任何补丁/自动识别。若确需覆盖请显式改此值。
+  depth_output_unit: m
 
 # ── 训练 ──────────────────────────────────────────────────
 # output_dir: outputs/train/adaptive_act_pick_place

@@ -43,14 +43,16 @@ uv run python scripts/collect_data.py \
     --task-config configs/tasks/tasks.yaml \
     --task pick_place \
     --dataset-config configs/dataset/dataset_pick_place.yaml \
-    --episodes 50
+    --episodes 50 \
+    --no-render
 
 # 双臂自动采集
 uv run python scripts/collect_data.py \
     --task-config configs/tasks/tasks.yaml \
     --task dual_pick_place \
     --dataset-config configs/dataset/dataset_dual_pick_place.yaml \
-    --episodes 50
+    --episodes 50\
+    --no-render
 
 # 键盘遥操作采集（打开 MuJoCo viewer）
 uv run python scripts/collect_data.py \
@@ -94,18 +96,18 @@ uv run python scripts/collect_data.py \
   4 通道输入（见 `configs/policy/adaptive_act.yaml`）。
 图像通道数会自动从特征 shape 识别（`image_channels` 无需指定）。
 
-**深度单位注意**：训练时 lerobot 以 `dataset.depth_output_unit` 解码深度视频，
-默认是 `"mm"`，而 env 产出**米**——若不统一会导致评估深度分布错误。本项目已内置
-**自动跟随补丁**（`lerobot_env_mujoco_lerobot` 的 `patches.py`）：训练时无需指定，
-dataloader 自动读取数据集 `info.json` 记录的 `depth_unit`（本项目为 `"m"`，与
-MuJoCo 渲染单位一致）作为解码单位。若确需强制覆盖，显式传
-`--dataset.depth_output_unit=<m|mm>` 即可。
+**深度单位注意**：本项目深度单位统一为**米**（MuJoCo 米制渲染）。记录侧采集时在
+features info 里显式写入 `depth_unit="m"`（`info.json` 记录单位）；训练侧
+`configs/policy/adaptive_act.yaml` 显式设 `dataset.depth_output_unit: m` 与之对齐
+（评估 env 亦产出米）。两端显式统一，无需任何补丁/自动识别。若确需强制覆盖，显式传
+`--dataset.depth_output_unit=<m|mm>`（此时评估 env 需同步设 `--env.depth_output_unit`）即可。
 
 ```bash
 # 方式一：使用策略配置文件（推荐；命令行可覆盖任意字段，如 dataset.root / steps）
 uv run lerobot-train \
     --config_path=configs/policy/adaptive_act.yaml \
-    --dataset.root=$(pwd)/outputs/datasets/pick_place/<时间戳目录> \
+    --dataset.repo_id=mujoco_pick_place \
+    --dataset.root=$(pwd)/outputs/datasets/<数据集名>/<时间戳目录> \
     --steps=100000
 
 # 方式二：全部命令行参数
@@ -114,7 +116,7 @@ uv run lerobot-train \
     --policy.push_to_hub=false \
     --policy.input_features='{"observation.state":{"type":"STATE","shape":[7]},"observation.images.realsense_link_CAMERA.rgb":{"type":"VISUAL","shape":[3,480,640]}}' \
     --dataset.repo_id=mujoco_pick_place \
-    --dataset.root=$(pwd)/outputs/datasets/pick_place/<时间戳目录> \
+    --dataset.root=$(pwd)/outputs/datasets/<数据集名>/<时间戳目录> \
     --output_dir=outputs/train/adaptive_act_pick_place \
     --steps=100000 \
     --batch_size=32 \
@@ -256,13 +258,13 @@ uv run lerobot-eval \
 - **评估侧输入归一化（与训练一致）**：评估时 env 产出的观测会经环境 preprocessor
   适配到与训练相同的表示后，再进策略 preprocessor（MEAN_STD，stats 来自数据集）：
   - rgb：uint8 `[0,255]` → `[0,1]`（对齐训练 dataloader 的 `/255`）；
-  - depth：env 产出**米**，训练通过内置补丁自动跟随数据集记录单位（`"m"`）解码、
-    stats 亦为米 → 评估无需转换。若训练被强制设为 `"mm"`，需把 env preprocessor 设为
-    `--env.depth_output_unit=mm`（米×1000 转毫米）以对齐。
+  - depth：env 产出**米**，训练配置显式 `dataset.depth_output_unit=m`（记录侧
+    `info.json` 亦显式记录 `depth_unit="m"`）解码、stats 亦为米 → 评估无需转换。
+    若训练被设为 `"mm"`，需把 env preprocessor 设为 `--env.depth_output_unit=mm`
+    （米×1000 转毫米）以对齐。
   若 rgb/depth 输入表示与训练分布不一致，策略在评估时"失明"、输出退化动作。
-  注意：`info.json` 的 `depth_unit` 只声明**记录单位**（采集写入时，确为米）；
-  lerobot 训练解码单位是独立的 `dataset.depth_output_unit`（默认 `"mm"`），本项目
-  通过补丁让训练自动跟随记录单位（见 `lerobot_env_mujoco_lerobot/patches.py`）。
+  两端单位显式统一（记录 `depth_unit="m"` ↔ 训练 `depth_output_unit=m` ↔ env 米），
+  无补丁/自动识别。
 - **物体随机化与 seed**：`MujocoLerobotEnv.reset(seed=...)` 会真正用该 seed 控制
   物体随机化（gym 语义）：同 seed 两次 reset 结果相同，不同 seed 不同。评估时
   `lerobot-eval` 为每个 episode 用 `seed + episode_index` 播种，因此各 episode

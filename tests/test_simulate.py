@@ -336,41 +336,49 @@ def test_eval_depth_normalization_matches_training():
     assert torch.allclose(normed_m, normed_mm, atol=1e-3)
 
 
-def test_auto_depth_output_unit_follows_recorded_unit():
-    """训练深度单位自动识别：默认 mm 时自动跟随数据集记录单位（本项目 'm'）。
+def test_depth_unit_explicitly_unified_as_m():
+    """深度单位显式统一为米（不依赖补丁 / 自动识别 / 读取 meta）。
 
-    补丁在 env 插件导入时安装（见 lerobot_env_mujoco_lerobot/patches.py）；
-    此处验证安装幂等、能从数据集识别记录单位，并通过 make_dataset 端到端
-    覆盖 depth_output_unit（解码出米）。
+    记录侧：采集时在 features info 里显式写 depth_unit="m"（info.json 记录米，
+    与 MuJoCo 米制渲染一致）。
+    训练侧：显式 dataset.depth_output_unit=m（见 configs/policy/adaptive_act.yaml 的
+    dataset.depth_output_unit），解码/stats 为米，与评估 env（米）一致。
     """
     import draccus
-    import torch
     from lerobot.configs.train import TrainPipelineConfig
-    from lerobot.datasets import factory as lerobot_factory
     from lerobot.datasets.factory import make_train_eval_datasets
     from lerobot_policy_Adaptive_ACT import AdaptiveACTConfig  # noqa: F401 注册策略
-    from lerobot_env_mujoco_lerobot.patches import (
-        _resolve_recorded_depth_unit,
-        install_lerobot_depth_unit_patch,
+
+    from mujoco_lerobot.data.dataset_writer import (
+        LeRobotDatasetConfig,
+        LeRobotDatasetWriter,
     )
 
-    # 安装幂等
-    assert install_lerobot_depth_unit_patch() is True
-    assert install_lerobot_depth_unit_patch() is True
-    assert getattr(lerobot_factory.make_dataset, "_lerobot_depth_unit_patched", False)
+    # ── 记录侧：features 的 depth info 显式声明米 ──
+    class _FakeCam:
+        name = "cam"
+        height = 32
+        width = 32
 
+    feats = LeRobotDatasetWriter._default_features(
+        LeRobotDatasetConfig(repo_id="x", root="/tmp/x", fps=30, cameras=[_FakeCam()])
+    )
+    assert feats["observation.images.cam.depth"]["info"] == {
+        "is_depth_map": True, "depth_unit": "m",
+    }
+
+    # ── 训练侧：显式 depth_output_unit=m → 解码/stats 为米 ──
     cfg = draccus.parse(TrainPipelineConfig, args=[
         "--policy.type=adaptive_act",
         "--policy.input_features={\"observation.state\":{\"type\":\"STATE\",\"shape\":[7]}}",
         "--dataset.repo_id=mujoco_pick_place",
         "--dataset.root=outputs/datasets/pick_place/20260806_004855",
-        "--output_dir=/tmp/depth_unit_patch_test",
+        "--dataset.depth_output_unit=m",
+        "--output_dir=/tmp/depth_unit_explicit_test",
         "--steps=1",
     ])
-    assert cfg.dataset.depth_output_unit == "mm"  # lerobot 默认（未显式指定）
-    assert _resolve_recorded_depth_unit(cfg) == "m"
+    assert cfg.dataset.depth_output_unit == "m"
 
-    # make_dataset（已补丁）自动把解码单位覆盖为记录单位 "m"
     ds, _ = make_train_eval_datasets(cfg)
     assert ds.depth_output_unit == "m"
     dep = np.asarray(ds[0]["observation.images.realsense_link_CAMERA.depth"]).astype(np.float32)
