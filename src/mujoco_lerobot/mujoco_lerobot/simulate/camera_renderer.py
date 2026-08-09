@@ -12,11 +12,16 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 
 import numpy as np
 
 log = logging.getLogger(__name__)
+
+# 无头（无 DISPLAY，如 SSH 服务器）：camrender 改用 EGL 后端离屏渲染
+# （无需 X 服务，需 GPU + EGL 驱动，如 NVIDIA）。
+_HEADLESS = not bool(os.environ.get("DISPLAY"))
 
 try:  # pragma: no cover - 取决于 C++ 绑定是否构建
     from mujoco_camrender import (
@@ -53,6 +58,10 @@ class CameraRenderer:
     ) -> None:
         import mujoco
 
+        # 无头时确保 mujoco.Renderer 走 EGL 离屏渲染（需 GPU + EGL 驱动）
+        if _HEADLESS:
+            os.environ.setdefault("MUJOCO_GL", "egl")
+
         self.cameras = cameras
         self._num_threads = num_threads or max(2, len(cameras))
         self._use_camrender = False
@@ -69,15 +78,18 @@ class CameraRenderer:
         self._far = _FAR_SCALE * ext
 
         # 注意：不要在此处创建 mujoco.Renderer（会污染 camrender 的 GL 状态），
-        # 仅在 camrender 不可用时惰性创建。
+        # 仅在 camrender 不可用/无头时惰性创建。
         self._cam_ids: dict[str, int] = {
             c.name: int(model.camera(c.name).id) for c in cameras
         }
 
+        # 无头（无 DISPLAY）时 camrender 使用 EGL 后端离屏渲染（无需显示，
+        # 需 GPU + EGL 驱动），保持并行渲染性能。
+        effective_backend = "egl" if _HEADLESS else backend
         if _HAS_CAMRENDER:
             try:
                 self._camrender = MultiCameraRenderer(
-                    model, data, num_threads=self._num_threads, backend=backend
+                    model, data, num_threads=self._num_threads, backend=effective_backend
                 )
                 # 应用 yaml 图像尺寸到各相机（覆盖 mjcf 默认分辨率）。
                 # 显式指定为固定相机（mjCAMERA_FIXED=2）+ 模型相机索引，
@@ -93,8 +105,9 @@ class CameraRenderer:
                 self._use_camrender = True
                 log.info(
                     "CameraRenderer: 使用 mujoco_camrender 并行 "
-                    "(%d 相机, %d 线程, near=%.3f far=%.1f)",
-                    len(cameras), self._num_threads, self._near, self._far,
+                    "(%d 相机, %d 线程, backend=%s, near=%.3f far=%.1f)",
+                    len(cameras), self._num_threads, effective_backend,
+                    self._near, self._far,
                 )
             except Exception as exc:  # pragma: no cover
                 log.warning("mujoco_camrender 初始化失败，回退 mujoco.Renderer: %s", exc)

@@ -49,6 +49,10 @@ from pathlib import Path
 
 os.environ.setdefault("FFMPEG_LOGLEVEL", "error")
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
+# 无头环境（无 DISPLAY，如 SSH 服务器）：使用 EGL 离屏渲染（需 GPU + EGL 驱动），
+# 避免 GLFW 因缺少显示而报错；有 DISPLAY 时保持默认（viewer 可正常使用）。
+if not os.environ.get("DISPLAY"):
+    os.environ.setdefault("MUJOCO_GL", "egl")
 for _name in ("lerobot", "datasets", "PIL", "torchvision", "ffmpeg", "av", "x265"):
     logging.getLogger(_name).setLevel(logging.WARNING)
 

@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-mujoco-camrender = { path = "libs/mujoco_camrender" }
+mujoco-camrender = { path = "libs/mujoco_camrender", editable = true }
 mujoco-lerobot-core = { path = "src/mujoco_lerobot", editable = true }
 lerobot_env_mujoco_lerobot = { path = "src/lerobot_env_mujoco_lerobot", editable = true }
 lerobot_policy_Adaptive_ACT = { path = "src/lerobot_policy_Adaptive_ACT", editable = true }

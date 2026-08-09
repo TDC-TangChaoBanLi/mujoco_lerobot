@@ -30,6 +30,9 @@ make -j$(nproc)
 cp src/pybind/_mujoco_camrender.cpython-312-x86_64-linux-gnu.so ../src/mujoco_camrender/
 cd ../../..
 uv sync --reinstall-package mujoco-camrender
+
+# 4. 安装 ffmpeg :
+sudo apt install ffmpeg -y
 ```
 
 > `.so` 已内嵌 RUNPATH 指向 camrender 构建目录与 MuJoCo 库目录，通常无需手动设置
@@ -62,6 +65,11 @@ uv run python scripts/collect_data.py \
     --mode keyboard
 ```
 
+> **无头（无 DISPLAY）环境**：`--no-render` 在 SSH 服务器/无显示器环境下会自动使用
+> **camrender 的 EGL 后端**做并行离屏渲染（相机 RGB/深度照常采集），无需 X 服务。
+> 要求 GPU 驱动支持 EGL（NVIDIA 驱动自带）；若不可用，自动回退 `mujoco.Renderer` + EGL。
+> 有显示器时使用默认 GLFW（viewer 正常显示）。
+
 ### 配置说明
 
 - `configs/tasks/tasks.yaml`：任务配置，通过 `scene_config_file` / `teacher_config_file`
@@ -74,7 +82,7 @@ uv run python scripts/collect_data.py \
     多个子采样（shape `(R, D)`），适用于自定义多速率模型（如 BiMFT）
   - `false`：所有非相机数据按 `recode_hz` 记录，忽略所有 `recode_scale`，产出
     **LeRobot 标准扁平格式**：state 拼接为 `observation.state (state_dim,)`、
-    action 为 `(action_dim,)`，**可直接用于 LeRobot 内置 ACT** 等策略
+    action 为 `(action_dim,)`，**可直接用于 LeRobot 内置 ACT** 策略
   - 相机数据固定按 `recode_hz` 记录；渲染参数（`image_size`/`fps`）在场景配置中
   - `state.camera.depth_range`：深度范围（米），**仅** lerobot 深度图像编码器使用
   - 其余可注释启用的数据源：joint `velocity`/`effort`、sensor `gyro`/
@@ -108,7 +116,9 @@ uv run lerobot-train \
     --config_path=configs/policy/adaptive_act.yaml \
     --dataset.repo_id=mujoco_pick_place \
     --dataset.root=$(pwd)/outputs/datasets/<数据集名>/<时间戳目录> \
-    --steps=100000
+    --steps=100000 \
+    --batch_size=32 \
+    --num_workers=8
 
 # 方式二：全部命令行参数
 uv run lerobot-train \
@@ -120,9 +130,66 @@ uv run lerobot-train \
     --output_dir=outputs/train/adaptive_act_pick_place \
     --steps=100000 \
     --batch_size=32 \
+    --num_workers=8 \
     --save_freq=5000 \
     --log_freq=100
 ```
+
+### 多 GPU 训练
+
+`lerobot-train` 内部使用 `accelerate.Accelerator`（自动检测分布式），因此多 GPU 只需
+**用 accelerate 启动器运行**，无需改任何代码。本机示例（2× RTX 3090）：
+
+> **⚠️ 多 GPU 必须用以下两个关键参数**（缺一不可，见下方「根因」）：
+```bash
+export NCCL_IB_DISABLE=1
+```
+> 并在命令加 `--dataloader_multiprocessing_context=fork`：
+```bash
+env NCCL_IB_DISABLE=1 \
+uv run accelerate launch \
+    --num_processes=2 \
+    --num_machines=1 \
+    --mixed_precision=bf16 \
+    -m lerobot.scripts.lerobot_train \
+    --config_path=configs/policy/adaptive_act.yaml \
+    --dataset.repo_id=mujoco_pick_place \
+    --dataset.root=$(pwd)/outputs/datasets/<数据集名>/<时间戳目录> \
+    --steps=100000 \
+    --batch_size=32 \
+    --num_workers=8 \
+    --dataloader_multiprocessing_context=fork
+```
+
+等价的 `torchrun` 方式：
+
+```bash
+env NCCL_IB_DISABLE=1 \
+uv run torchrun \
+    --nproc_per_node=2 \
+    -m lerobot.scripts.lerobot_train \
+    --config_path=configs/policy/adaptive_act.yaml \
+    --dataset.repo_id=mujoco_pick_place \
+    --dataset.root=$(pwd)/outputs/datasets/<数据集名>/<时间戳目录> \
+    --steps=100000 \
+    --batch_size=32 \
+    --num_workers=4 \
+    --dataloader_multiprocessing_context=fork
+```
+
+**注意**：
+
+- `--batch_size` 是**每 GPU** 的：accelerate 把每个 batch 分片到各 rank，有效全局
+  batch = `batch_size × num_processes`。2 卡下 `--batch_size=32` → 全局 64；
+  若想保持全局 32，用 `--batch_size=16`。
+- 混合精度：`AdaptiveACTConfig`（同原生 ACT）**没有 `dtype` 字段**，不能传
+  `--policy.dtype=...`。直接用启动器参数 `--mixed_precision=bf16`（RTX 3090 Ampere
+  支持）；lerobot 会对无 `dtype` 字段的策略把 `mixed_precision` 设为 `None`，
+  accelerate 会回退读取 `ACCELERATE_MIXED_PRECISION` 环境变量，因此 `bf16` 生效
+  （已验证两 rank 均为 bf16）。想要全精度则用 `--mixed_precision=no`。
+- 分布式下 `--policy.device` 会被忽略（accelerate 自动按 rank 分配 GPU）。
+- env 评估只在主进程执行；checkpoint 会记录 `num_processes`/`batch_size`，续训自动恢复。
+
 
 ### 启用离线 WandB（本地记录指标曲线）
 

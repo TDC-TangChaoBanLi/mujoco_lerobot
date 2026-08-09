@@ -91,10 +91,10 @@ class LeRobotDatasetConfig:
     preset: str | None = None
     g: int | None = None            # GOP 大小；None=auto（NVENC 需要 g 足够大）
     batch_encoding_size: int = 1
-    encoder_threads: int | None = 4
+    encoder_threads: int | None = 6
     encoder_queue_maxsize: int = 90
-    image_writer_threads: int = 0
-    image_writer_processes: int = 0
+    image_writer_threads: int = 4
+    image_writer_processes: int = 4
 
     def resolved_root(self) -> Path:
         return Path(self.root).expanduser().resolve()
