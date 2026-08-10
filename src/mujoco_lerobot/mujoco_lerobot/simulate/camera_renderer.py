@@ -17,6 +17,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
+# 无头（无 DISPLAY，如 SSH 服务器）时，必须在首个 `import mujoco` 之前设置
+# `MUJOCO_GL=egl`（否则 glfw 后端已被选定，无 DISPLAY 下 mujoco.Renderer 崩溃）。
+from mujoco_lerobot.gl_setup import configure as _configure_headless_gl
+
+_configure_headless_gl()
+
 log = logging.getLogger(__name__)
 
 # 无头（无 DISPLAY，如 SSH 服务器）：camrender 改用 EGL 后端离屏渲染

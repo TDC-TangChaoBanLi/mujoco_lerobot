@@ -13,7 +13,7 @@
 policy:
   type: adaptive_act
   push_to_hub: false
-
+  dataloader_multiprocessing_context: fork
   # 输入特征：必须声明 concat_visual_features 引用的所有源特征（本项目两相机
   # 各含 rgb(3ch) 与 depth(1ch) 两个 VISUAL，下方拼成 4 通道 RGBD 送 backbone；
   # conv1 自动适配 4 通道，无需再指定 image_channels）。
@@ -89,7 +89,7 @@ policy:
 
 # ── 数据集 ────────────────────────────────────────────────
 dataset:
-  # repo_id: mujoco_pick_place
+  repo_id: mujoco_pick_place
   # 按实际采集的时间戳目录覆盖（configs/dataset/dataset_pick_place.yaml 为记录格式，
   # 这里是已采集的数据目录）；命令行 --dataset.root=... 可覆盖
   # root: outputs/datasets/pick_place/20260806_004855

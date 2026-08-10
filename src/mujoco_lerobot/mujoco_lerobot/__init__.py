@@ -10,3 +10,9 @@ LeRobot 环境插件（gymnasium 环境 + EnvConfig 注册）已迁移至独立�
 """
 
 __version__ = "0.1.0"
+
+# 必须在任何 `import mujoco` 之前设置无头渲染后端（EGL），否则 glfw 后端已加载、
+# 无 DISPLAY 时创建 mujoco.Renderer 会崩溃。
+from .gl_setup import configure as _configure_headless_gl
+
+_configure_headless_gl()

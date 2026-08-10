@@ -1,13 +1,142 @@
 # mujoco-lerobot
 
-基于 MuJoCo 的 LeRobot 仿真环境：数据采集 + 策略评估。
+基于 MuJoCo 的 LeRobot 仿真环境：**数据采集 → 策略训练 → 策略评估** 全流程闭环。
 
-- 自动（scripted teacher）/ 键盘遥操作数据采集，由 YAML 配置驱动
-- 高性能多相机并行渲染（[mujoco_camrender](libs/mujoco_camrender)，RGB + 深度线性化）
+- 自动（scripted teacher）/ 键盘遥操作数据采集，由 YAML 配置驱动，LeRobot 流式编码写入（内存恒定）
+- 高性能多相机并行渲染（[mujoco_camrender](libs/mujoco_camrender)，RGB + 深度一次渲染），支持无头 EGL 离屏
 - IK 解算基于 [mink](https://github.com/kevinzakka/mink/)
-- LeRobot 环境插件（`lerobot_env_mujoco_lerobot`），支持 `lerobot-eval` 直接评估
-- 自适应 ACT 策略插件（`lerobot_policy_Adaptive_ACT`）：任意图像通道数输入 +
+- LeRobot 环境插件（`lerobot_env_mujoco_lerobot`），`lerobot-eval` 一键评估
+- 自适应 ACT 策略插件（`lerobot_policy_Adaptive_ACT`）：任意图像通道数（灰度 / RGB / RGB-D）、
   按相机分组共享 / 独立 resnet18 backbone，注册为策略类型 `adaptive_act`
+- 深度单位全程显式统一为**米**（记录 `depth_unit="m"` ↔ 训练 `depth_output_unit=m` ↔ env 米），无需补丁
+
+## 本项目包含的内容
+
+| 部分 | 路径 | 作用 |
+|------|------|------|
+| 仿真核心 | `src/mujoco_lerobot` | MuJoCo 封装、IK、相机渲染、数据采集全套 |
+| 采集脚本 | `scripts/collect_data.py` | 一键数据采集（teacher / keyboard）入口 |
+| 评估环境插件 | `src/lerobot_env_mujoco_lerobot` | gymnasium 环境 + EnvConfig，供 `lerobot-eval` 使用 |
+| 策略插件 | `src/lerobot_policy_Adaptive_ACT` | 自适应 ACT（`adaptive_act`），供 `lerobot-train` 使用 |
+| 渲染库 | `libs/mujoco_camrender` | C++ 多相机并行离屏渲染引擎（submodule） |
+| 配置文件 | `configs/` | 任务 / 场景 / 数据集 / teacher / 策略 YAML |
+
+### 仿真核心 `src/mujoco_lerobot`
+
+主包（PyPI 名 `mujoco-lerobot-core`），包含：
+
+- `configs/`：YAML 配置加载
+  - `config_loader.py`：任务 / 场景配置加载、`resolve_config_path`
+  - `dataset_config.py`：`DatasetConfig`，解析 `use_recode_scale` 多速率 / 扁平记录格式
+  - `teacher_config.py`、`paths.py`
+- `simulate/`：底层仿真
+  - `mujoco_wrapper.py`：MuJoCo 模型 / 数据管理
+  - `ik_solver.py`：基于 mink 的 IK 解算
+  - `camera_renderer.py`：相机渲染（camrender 并行 / 回退 `mujoco.Renderer`）
+  - `actuators.py`：执行器控制
+- `data/`：数据采集
+  - `simulation_manager.py`：episode 调度（物理步进、帧回调、视图）
+  - `controllers.py`：`ScriptedTeacherController` / `KeyboardTeleopController`
+  - `teachers/`：scripted teacher 实现（`pick_place_teacher.py` / `dual_pick_place_teacher.py` / `base.py`）
+  - `observation_collector.py`：观测采集（state / action / 相机帧）
+  - `dataset_writer.py`：`LeRobotDatasetWriter`（流式写入、追加一致性校验）
+  - `reset_manager.py`：复位与物体随机化
+
+### 数据采集脚本 `scripts/collect_data.py`
+
+一键采集入口：`--mode teacher`（自动，默认）/ `--mode keyboard`（键盘遥操作）。主要参数：
+
+| 参数 | 说明 |
+|------|------|
+| `--task-config` / `--task` | 任务配置文件 / 任务名（`--task list` 列出所有） |
+| `--dataset-config` | 数据集记录格式配置 |
+| `--mode` | `teacher`（自动）或 `keyboard`（键盘） |
+| `--episodes` | 目标 episode 数（`--append` 时为**本轮新增**条数） |
+| `--repo-id` | 数据集 repo_id，默认 `mujoco_<任务名>`（如 `mujoco_pick_place`） |
+| `--output` | 输出根目录（默认 `outputs/datasets`），写入 `<output>/<任务名>/<时间戳>` |
+| `--output-dir` | **直接指定**数据集输出目录（精确路径，不再附加任务名 / 时间戳子目录） |
+| `--append DIR` | 在已有数据集上**追加** episode（追加前校验配置一致） |
+| `--max-time` | 每 episode 仿真时间上限（秒），默认取 `simulate_default.yaml` |
+| `--no-render` | 无头模式（不打开 viewer；无 DISPLAY 时自动 EGL 离屏渲染） |
+| `--overwrite` | 覆盖已存在的输出目录 |
+
+### LeRobot 评估环境插件 `src/lerobot_env_mujoco_lerobot`
+
+gymnasium 环境 + `EnvConfig` 注册，供 `lerobot-eval --env.type=mujoco_lerobot` 使用：
+
+- `lerobot_env.py`：`MujocoLerobotEnv`，任务无关（`--env.task` / `--env.dataset_config` 由 CLI 传入）
+- `lerobot_env_cfg.py`：EnvConfig 注册 + 观测 preprocessor
+  - rgb：uint8 `[0,255]` → `[0,1]`（对齐训练 dataloader 的 `/255`）
+  - depth：按 `--env.depth_output_unit`（默认 `m`）把 env 米制深度转到训练使用的单位
+- 环境产出 gym 风格键（`state.*` / `images.*`），任何在该数据集格式上训练的策略可直接评估；
+  其他策略可覆盖 `get_env_processors` 提供外部观测数据处理器适配
+
+### 自适应 ACT 策略插件 `src/lerobot_policy_Adaptive_ACT`
+
+基于原生 ACT（Action Chunking Transformer）扩展的策略插件，注册为 LeRobot 策略类型
+`adaptive_act`（`--policy.type=adaptive_act`），供 `lerobot-train` 直接训练。实现
+分布在三个文件：`configuration_adaptive_act.py`（`AdaptiveACTConfig`，超参）、
+`modeling_adaptive_act.py`（`AdaptiveACTPolicy`，模型结构）、`processor_adaptive_act.py`
+（输入 / 输出处理器）。模型基于纯 `torch.nn.Transformer` 构建，任务无关（不限于
+pick_place）。
+
+**输入适应性** —— 解决"任意相机配置都能直接训练"的问题：
+
+- **任意图像通道数**：支持灰度（1 通道）、RGB（3 通道）、RGB-D（4 通道）及任意
+  通道数；非 3 通道时仅替换 resnet 的 `conv1`（灰度取预训练 RGB 均值、多余通道取
+  RGB 均值），**其余层保留 ImageNet 预训练权重**。
+- **通道数自动识别**：`image_channels=None`（默认）时从数据集 `input_features`
+  自动识别通道数，无需人工指定。
+- **RGBD 支持（通道拼接）**：`concat_visual_features` 把同一相机的 rgb（3ch）+
+  depth（1ch）沿通道维拼成 4 通道 RGBD 视图（conv1 自动适配），无需重新采集数据集；
+  拼接视图通道数 = 各源通道数之和，拼接前各源特征按自身 stats 归一化。
+
+**多相机组织** —— 按相机分组共享 / 独立 backbone：
+
+- `camera_backbone_groups` 指定各分组包含的相机：同组相机共用一个 resnet18，
+  不同组用独立 resnet18；未指定的相机自动归入共享默认组。
+  例如 `{hand: [camera_left, camera_right], global: [camera_top]}` —— 两个手眼
+  相机共用一个 backbone，全局相机用另一个。
+
+**训练配置** —— 全部超参可经 YAML 配置文件或命令行传入（命令行优先，覆盖同名参数）：
+
+- 完整训练配置见 `configs/policy/adaptive_act.yaml`（含 `policy:` 超参 + `dataset:`
+  + 训练参数），训练命令见「策略训练」章节。
+- RGBD 用法示例（已内置在配置中）：`input_features` 同时保留 rgb 与 depth，并通过
+  `concat_visual_features` 把它们拼成一个视图：
+
+```yaml
+policy:
+  type: adaptive_act
+  input_features:
+    observation.state: {type: STATE, shape: [7]}
+    observation.images.realsense_link_CAMERA.rgb:   {type: VISUAL, shape: [3, 480, 640]}
+    observation.images.realsense_link_CAMERA.depth: {type: VISUAL, shape: [1, 480, 640]}
+  concat_visual_features:
+    observation.images.realsense_link_CAMERA.rgbd:
+      - observation.images.realsense_link_CAMERA.rgb
+      - observation.images.realsense_link_CAMERA.depth
+  # 拼接后有效视觉输入为 4 通道 RGBD，conv1 自动适配，image_channels 无需指定
+```
+
+### 多相机渲染库 `libs/mujoco_camrender`
+
+C++ + pybind11 的 MuJoCo 多相机并行离屏渲染引擎（git submodule）：
+
+- 每相机独立线程并行渲染，RGB + 深度一次完成；深度通过透视投影公式从深度缓冲线性化恢复
+- GLFW（有 DISPLAY）/ EGL（无头）双后端，CMake 自动检测
+- 详细文档见 [libs/mujoco_camrender/README.md](libs/mujoco_camrender/README.md)
+
+### 配置文件 `configs`
+
+- `tasks/tasks.yaml`：任务配置 —— 通过 `scene_file` / `scene_config_file` / `teacher_config_file`
+  连接场景与 teacher；**不**引用数据集配置（同一场景可有多种采集格式）
+- `scenes/scene_*.yaml`：机器人（前缀、关节、末端 site）与相机（名称、fps、分辨率），
+  以及评估视角 `view:`（`lookat` / `distance` / `elevation` / `azimuth` / `image_size`）
+- `dataset/dataset_*.yaml`：数据记录格式（详见「数据采集 → 配置说明」）
+- `teachers/*.yaml`：scripted teacher 参数（对象名、阈值、高度、夹爪指令等）
+- `policy/adaptive_act.yaml`：自适应 ACT 完整训练配置（`policy:` 超参 + `dataset:` + 训练参数）
+- `simulate_default.yaml`：仿真 / 控制频率（`sim.physics_dt` / `sim.policy_dt`）与采集参数（`collection.*`）
 
 ## 环境准备
 
@@ -40,24 +169,33 @@ sudo apt install ffmpeg -y
 
 ## 数据采集
 
+### 自动采集（scripted teacher）
+
+单臂 pick_place：
+
 ```bash
-# 自动采集（scripted teacher）
 uv run python scripts/collect_data.py \
     --task-config configs/tasks/tasks.yaml \
     --task pick_place \
     --dataset-config configs/dataset/dataset_pick_place.yaml \
-    --episodes 50 \
+    --episodes 100 \
     --no-render
+```
 
-# 双臂自动采集
+双臂 pick_place：
+
+```bash
 uv run python scripts/collect_data.py \
     --task-config configs/tasks/tasks.yaml \
     --task dual_pick_place \
     --dataset-config configs/dataset/dataset_dual_pick_place.yaml \
-    --episodes 50\
+    --episodes 100 \
     --no-render
+```
 
-# 键盘遥操作采集（打开 MuJoCo viewer）
+### 键盘遥操作采集（打开 MuJoCo viewer，需要真实桌面显示环境）
+
+```bash
 uv run python scripts/collect_data.py \
     --task-config configs/tasks/tasks.yaml \
     --task pick_place \
@@ -65,10 +203,48 @@ uv run python scripts/collect_data.py \
     --mode keyboard
 ```
 
-> **无头（无 DISPLAY）环境**：`--no-render` 在 SSH 服务器/无显示器环境下会自动使用
-> **camrender 的 EGL 后端**做并行离屏渲染（相机 RGB/深度照常采集），无需 X 服务。
-> 要求 GPU 驱动支持 EGL（NVIDIA 驱动自带）；若不可用，自动回退 `mujoco.Renderer` + EGL。
-> 有显示器时使用默认 GLFW（viewer 正常显示）。
+键盘控制：`W/S A/D R/F` = x/y/z 平移，方向键 / `Q/E` = 旋转，`Space` = 夹爪开合，
+`Enter` = 保存当前 episode，`Backspace` = 丢弃，`Esc` = 退出。
+
+### 自定义 repo_id 与数据集目录
+
+```bash
+# 指定 repo_id 与输出目录（--output-dir 为精确目录，不再附加 <任务名>/<时间戳>）
+uv run python scripts/collect_data.py \
+    --task-config configs/tasks/tasks.yaml \
+    --task pick_place \
+    --dataset-config configs/dataset/dataset_pick_place.yaml \
+    --repo-id my_org/my_pick_place \
+    --output-dir outputs/datasets/my_pick_place \
+    --episodes 100 \
+    --no-render
+```
+
+不传 `--output-dir` 时，数据集写入 `<--output>/<任务名>/<时间戳>`（如
+`outputs/datasets/pick_place/20260809_154748`）。
+
+### 追加数据（`--append`）
+
+```bash
+uv run python scripts/collect_data.py \
+    --task-config configs/tasks/tasks.yaml \
+    --task pick_place \
+    --dataset-config configs/dataset/dataset_pick_place.yaml \
+    --append outputs/datasets/pick_place/20260809_154748 \
+    --episodes 100 \
+    --no-render
+```
+
+**`--append` 语义**：在已有数据集上**追加 `--episodes` 指定条数的新 episode**
+（总量 = 已有 + 新增），**不是**"补到总量达到 `--episodes`"。追加前会校验当前
+配置与已有数据集的 fps / features / 深度单位 / 编码参数一致，不一致会抛错拒绝追加。
+
+### 无头（无 DISPLAY）环境
+
+`--no-render` 在 SSH 服务器/无显示器环境下会自动使用 camrender 的 **EGL 后端**做
+并行离屏渲染（相机 RGB/深度照常采集），无需 X 服务。要求 GPU 驱动支持 EGL（NVIDIA
+驱动自带）；若不可用，自动回退 `mujoco.Renderer` + EGL。有显示器时使用默认 GLFW
+（viewer 正常显示）。
 
 ### 配置说明
 
@@ -90,7 +266,7 @@ uv run python scripts/collect_data.py \
     （支持 `frame_site` 参考系与 `type`：`absolute`/`relative`/`velocity`）
 - `configs/teachers/*.yaml`：scripted teacher 参数（对象名、阈值、高度、夹爪指令等）。
 
-## 策略训练（Adaptive ACT + 离线 WandB）
+## 策略训练（Adaptive ACT）
 
 使用内置自适应 ACT 策略插件（`--policy.type=adaptive_act`）在采集的数据集上训练
 （`use_recode_scale: false` 的扁平格式可直接训练）。策略参数可经
@@ -111,34 +287,22 @@ features info 里显式写入 `depth_unit="m"`（`info.json` 记录单位）；�
 `--dataset.depth_output_unit=<m|mm>`（此时评估 env 需同步设 `--env.depth_output_unit`）即可。
 
 ```bash
-# 方式一：使用策略配置文件（推荐；命令行可覆盖任意字段，如 dataset.root / steps）
+# 使用策略配置文件 config_path（推荐；命令行可覆盖任意字段，如 dataset.root / steps）
 uv run lerobot-train \
     --config_path=configs/policy/adaptive_act.yaml \
-    --dataset.repo_id=mujoco_pick_place \
-    --dataset.root=$(pwd)/outputs/datasets/<数据集名>/<时间戳目录> \
-    --steps=100000 \
-    --batch_size=32 \
-    --num_workers=8
-
-# 方式二：全部命令行参数
-uv run lerobot-train \
-    --policy.type=adaptive_act \
-    --policy.push_to_hub=false \
-    --policy.input_features='{"observation.state":{"type":"STATE","shape":[7]},"observation.images.realsense_link_CAMERA.rgb":{"type":"VISUAL","shape":[3,480,640]}}' \
-    --dataset.repo_id=mujoco_pick_place \
-    --dataset.root=$(pwd)/outputs/datasets/<数据集名>/<时间戳目录> \
-    --output_dir=outputs/train/adaptive_act_pick_place \
-    --steps=100000 \
-    --batch_size=32 \
     --num_workers=8 \
-    --save_freq=5000 \
-    --log_freq=100
+    --prefetch_factor=8 \
+    --persistent_workers=true \
+    --save_freq=10000 \
+    --steps=50000 \
+    --batch_size=48 \
+    --dataset.root=$(pwd)/outputs/datasets/<数据集名>/<时间戳目录>
 ```
 
 ### 多 GPU 训练
 
 `lerobot-train` 内部使用 `accelerate.Accelerator`（自动检测分布式），因此多 GPU 只需
-**用 accelerate 启动器运行**，无需改任何代码。本机示例（2× RTX 3090）：
+**用 accelerate 启动器运行**：
 
 > **⚠️ 多 GPU 必须用以下两个关键参数**（缺一不可，见下方「根因」）：
 ```bash
@@ -153,28 +317,13 @@ uv run accelerate launch \
     --mixed_precision=bf16 \
     -m lerobot.scripts.lerobot_train \
     --config_path=configs/policy/adaptive_act.yaml \
-    --dataset.repo_id=mujoco_pick_place \
-    --dataset.root=$(pwd)/outputs/datasets/<数据集名>/<时间戳目录> \
-    --steps=100000 \
-    --batch_size=32 \
     --num_workers=8 \
-    --dataloader_multiprocessing_context=fork
-```
-
-等价的 `torchrun` 方式：
-
-```bash
-env NCCL_IB_DISABLE=1 \
-uv run torchrun \
-    --nproc_per_node=2 \
-    -m lerobot.scripts.lerobot_train \
-    --config_path=configs/policy/adaptive_act.yaml \
-    --dataset.repo_id=mujoco_pick_place \
-    --dataset.root=$(pwd)/outputs/datasets/<数据集名>/<时间戳目录> \
-    --steps=100000 \
-    --batch_size=32 \
-    --num_workers=4 \
-    --dataloader_multiprocessing_context=fork
+    --prefetch_factor=8 \
+    --persistent_workers=true \
+    --save_freq=10000 \
+    --steps=50000 \
+    --batch_size=48 \
+    --dataset.root=$(pwd)/outputs/datasets/<数据集名>/<时间戳目录>
 ```
 
 **注意**：
@@ -183,99 +332,12 @@ uv run torchrun \
   batch = `batch_size × num_processes`。2 卡下 `--batch_size=32` → 全局 64；
   若想保持全局 32，用 `--batch_size=16`。
 - 混合精度：`AdaptiveACTConfig`（同原生 ACT）**没有 `dtype` 字段**，不能传
-  `--policy.dtype=...`。直接用启动器参数 `--mixed_precision=bf16`（RTX 3090 Ampere
-  支持）；lerobot 会对无 `dtype` 字段的策略把 `mixed_precision` 设为 `None`，
+  `--policy.dtype=...`。直接用启动器参数 `--mixed_precision=bf16`；lerobot 会对无 `dtype` 字段的策略把 `mixed_precision` 设为 `None`，
   accelerate 会回退读取 `ACCELERATE_MIXED_PRECISION` 环境变量，因此 `bf16` 生效
   （已验证两 rank 均为 bf16）。想要全精度则用 `--mixed_precision=no`。
 - 分布式下 `--policy.device` 会被忽略（accelerate 自动按 rank 分配 GPU）。
 - env 评估只在主进程执行；checkpoint 会记录 `num_processes`/`batch_size`，续训自动恢复。
 
-
-### 启用离线 WandB（本地记录指标曲线）
-
-lerobot 训练默认只把指标打印到终端（不落盘、不支持 TensorBoard）。要持久化
-loss/学习率等曲线，可启用 WandB **离线模式**——不需要登录账号，日志写入
-`output_dir/wandb/` 目录，之后可手动同步到云端查看：
-
-```bash
-uv run lerobot-train \
-    --config_path=configs/policy/adaptive_act.yaml \
-    --dataset.root=$(pwd)/outputs/datasets/pick_place/<时间戳目录> \
-    --output_dir=outputs/train/adaptive_act_pick_place \
-    --steps=100000 \
-    --wandb.enable=true \
-    --wandb.mode=offline \
-    --wandb.project=mujoco_lerobot
-```
-
-#### WandB 参数说明
-
-| 参数 | 值 | 说明 |
-| --- | --- | --- |
-| `--wandb.enable` | `true` | 是否启用 WandB 日志（默认 `false`，仅打印到终端） |
-| `--wandb.mode` | `offline` | 日志模式：`offline`（本地，无需登录）/ `online`（需 `wandb login`）/ `disabled`（关闭） |
-| `--wandb.project` | `mujoco_lerobot` | 项目名，用于云端分组 |
-| `--wandb.entity` | 可选 | 云端组织/用户名（离线模式可省略） |
-| `--wandb.run_id` | 可选 | 指定 run id（续训时自动复用） |
-
-> **提示**：训练脚本不会自动重定向终端日志到文件。建议用 `nohup ... > train.log 2>&1 &`
-> 保存终端指标，与 WandB 双保险。
-
-#### 查看离线日志
-
-离线运行的数据落在 `<output_dir>/wandb/`（如 `outputs/train/adaptive_act_pick_place/wandb/`），
-每个 run 一个 `offline-run-<时间戳>-<run_id>` 目录，核心指标保存在目录内的
-`run-<run_id>.wandb` 文件（LevelDB protobuf 格式）：
-
-```bash
-# 1) 列出离线 run
-ls outputs/train/adaptive_act_pick_place/wandb/
-#    → offline-run-20260806_210548-t0nynggt/
-```
-
-**方式 A：上传云端查看（推荐，可看曲线/图表）**
-
-需先登录一次账号（无账号可先 `wandb signup`），然后同步上传，到 wandb.ai 网页查看：
-
-```bash
-wandb login            # 首次登录（一次性）
-wandb sync outputs/train/adaptive_act_pick_place/wandb/offline-run-*   # 上传该 run 到云端
-# 上传完成后控制台会打印云端 URL，打开即可查看 loss / lr / 梯度等曲线
-```
-
-> `wandb offline` 是「让后续 `python train.py` 以离线模式记录」的环境切换命令，
-> 不是查看工具；离线日志一律用 `wandb sync` 上传后在网页查看。
-
-**方式 B：本地解析 `.wandb` 文件（无需登录、无需上传）**
-
-```bash
-python - <<'EOF'
-import glob
-from wandb.sdk.internal.datastore import DataStore
-from wandb.proto import wandb_internal_pb2
-
-for p in sorted(glob.glob("outputs/train/adaptive_act_pick_place/wandb/offline-run-*/run-*.wandb")):
-    print(f"== {p} ==")
-    ds = DataStore()
-    ds.open_for_scan(p)
-    rec = wandb_internal_pb2.Record()
-    while True:
-        data = ds.scan_data()
-        if data is None:
-            break
-        rec.ParseFromString(data)
-        if rec.WhichOneof("record_type") == "request":
-            req = rec.request
-            if req.WhichOneof("request_type") == "log":
-                d = {k: v for k, v in req.log.data.items() if not k.startswith("_")}
-                if d:
-                    print("step", req.log.step, d)
-        rec.Clear()
-    ds.close()
-EOF
-```
-
-> 训练中途或完成后都可以运行上面的脚本；`wandb sync` 与本地解析脚本可同时使用。
 
 ## 策略评估（lerobot-eval）
 
@@ -289,13 +351,14 @@ uv run lerobot-eval \
     --env.type=mujoco_lerobot \
     --env.task=pick_place \
     --env.dataset_config=configs/dataset/dataset_pick_place.yaml \
-    --policy.path=outputs/train/adaptive_act_pick_place/checkpoints/last/pretrained_model \
-    --eval.n_episodes=5 \
-    --eval.batch_size=1
+    --eval.n_episodes=10 \
+    --eval.batch_size=10  \
+    --eval.recording=true \
+    --policy.path=outputs/train/<时间戳目录>/<时间戳+策略名>/checkpoints/last/pretrained_model
 ```
 
 
-# 可视化评估（打开 MuJoCo viewer，需要真实桌面显示环境）
+### 可视化评估（打开 MuJoCo viewer，需要真实桌面显示环境）
 
 ```bash
 uv run lerobot-eval \
@@ -303,7 +366,10 @@ uv run lerobot-eval \
     --env.task=pick_place \
     --env.dataset_config=configs/dataset/dataset_pick_place.yaml \
     --env.use_viewer=true \
-    --policy.path=outputs/train/adaptive_act_pick_place/checkpoints/last/pretrained_model
+    --eval.n_episodes=10 \
+    --eval.batch_size=10  \
+    --eval.recording=true \
+    --policy.path=outputs/train/<时间戳目录>/<时间戳+策略名>/checkpoints/last/pretrained_model
 ```
 
 ### 评估参数说明
@@ -338,110 +404,28 @@ uv run lerobot-eval \
   随机化不同、且同一 episode 跨次评估可复现；若想换一组随机化，改 `--eval.seed`
   （或 `cfg.seed`）即可。
 
-### 自适应 ACT 策略（`adaptive_act`）
-
-内置自适应 ACT 策略插件 `lerobot_policy_Adaptive_ACT`，在原生 ACT 基础上扩展：
-
-1. **任意图像通道数输入**：支持灰度（1 通道）、RGB（3 通道）、RGB-D（4 通道）及
-   任意通道数；非 3 通道时仅替换 resnet 的 `conv1`（灰度取预训练 RGB 均值、多余
-   通道取 RGB 均值），**其余层保留 ImageNet 预训练权重**。
-2. **按相机分组共享 / 独立 backbone**：`camera_backbone_groups` 指定各分组包含的
-   相机，同组相机共用一个 resnet18，不同组用独立 resnet18；未指定的相机自动归入
-   共享默认组。
-3. **通道数自动识别**：`image_channels=None`（默认）时从数据集的
-   `input_features` 自动识别通道数，无需人工指定。
-4. **RGBD 支持（通道拼接）**：`concat_visual_features` 可把同一相机的
-   rgb（3ch）+ depth（1ch）沿通道维拼成 4 通道 RGBD 视图（conv1 自动适配），
-   无需重新采集数据集；拼接视图的通道数 = 各源通道数之和。
-5. **配置灵活**：全部超参可经 YAML 模型配置文件或命令行传入，命令行参数优先
-   （覆盖配置文件中的同名参数）。
-6. **全归一化**：所有输入 / 输出经 LeRobot 默认 MEAN_STD pre/post processor 归一化
-   （拼接前各源特征按其自身 stats 归一化）。
-7. 模型基于纯 `torch.nn.Transformer` 构建，任务无关（不限于 pick_place）。
-
-```bash
-# 训练（从数据集初始化，通道数/特征自动从 input_features 识别）
-uv run lerobot-train \
-    --policy.type=adaptive_act \
-    --policy.input_features='{"observation.state":{"type":"STATE","shape":[7]},"observation.images.realsense_link_CAMERA.rgb":{"type":"VISUAL","shape":[3,480,640]}}' \
-    --dataset.repo_id=mujoco_pick_place \
-    --dataset.root=outputs/datasets/pick_place/20260806_004855 \
-    --output_dir=outputs/train/adaptive_act_pick_place \
-    --steps=50000 --batch_size=32
-
-# 评估
-uv run lerobot-eval \
-    --env.type=mujoco_lerobot --env.task=pick_place \
-    --env.dataset_config=configs/dataset/dataset_pick_place.yaml \
-    --policy.path=outputs/train/adaptive_act_pick_place/checkpoints/last/pretrained_model \
-    --eval.n_episodes=5 --eval.batch_size=1 --eval.use_async_envs=false
-```
-
-模型配置使用完整训练配置文件 `configs/policy/adaptive_act.yaml`（含 `policy:`
-自适应 ACT 超参、`dataset:` 与训练参数），命令行参数优先级更高：
-
-```bash
-# 用配置文件训练，命令行可覆盖任意字段
-uv run lerobot-train \
-    --config_path=configs/policy/adaptive_act.yaml \
-    --policy.image_channels=4 \   # 命令行覆盖配置文件中的 image_channels
-    --steps=100000
-```
-
-> 多相机分组示例见 `configs/policy/adaptive_act.yaml` 内注释：
-> `camera_backbone_groups: {hand: [camera_left, camera_right], global: [camera_top]}`
-> —— 两个手眼相机共用一个 resnet18，全局相机用另一个；未指定相机自动归入默认组。
-
-RGBD（rgb+depth 4 通道）用法：在 `input_features` 中同时保留 rgb 与 depth，并通过
-`concat_visual_features` 把它们拼成一个视图（`configs/policy/adaptive_act.yaml`
-已内置该示例，可直接用于 pick_place）：
-
-```yaml
-policy:
-  type: adaptive_act
-  input_features:
-    observation.state: {type: STATE, shape: [7]}
-    observation.images.realsense_link_CAMERA.rgb:   {type: VISUAL, shape: [3, 480, 640]}
-    observation.images.realsense_link_CAMERA.depth: {type: VISUAL, shape: [1, 480, 640]}
-  concat_visual_features:
-    observation.images.realsense_link_CAMERA.rgbd:
-      - observation.images.realsense_link_CAMERA.rgb
-      - observation.images.realsense_link_CAMERA.depth
-  # 拼接后有效视觉输入为 4 通道 RGBD，conv1 自动适配，image_channels 无需指定
-```
-
-## 性能说明
-
-- 物理步进 ~0.02ms、IK ~0.07ms，每帧开销极小；渲染是主要瓶颈。
-- `mujoco_camrender` 并行渲染全部相机（RGB + 深度一次），深度通过透视投影
-  公式从原始深度缓冲线性化恢复（`near=0.01·extent, far=50·extent`，已验证）。
-- 数据写入使用 LeRobot 流式编码（后台线程），不缓存整集，内存恒定。
-- **注意（WSL）**：在 WSL2 下 OpenGL 走 Mesa D3D12 翻译层，渲染较慢
-  （单臂 1 相机约实时 30fps，双臂 3 相机约 11fps）；在原生 Linux GPU 上
-  camrender 可达数百 FPS。MuJoCo viewer 需要真实桌面显示环境。
-
-## 测试
-
-```bash
-# 单元测试（env / 策略 / 诊断 rollout）
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest tests/
-```
-
-> 若系统安装了 ROS（`/opt/ros/*`），pytest 可能自动加载不兼容的 `launch_testing`
-> 插件，用 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` 禁用第三方插件自动加载。
-
 ## 项目结构
 
 ```
-configs/                    # YAML 配置（tasks / scenes / dataset / teachers）
-assets/mujoco/              # MuJoCo 场景与机器人模型
-libs/mujoco_camrender/      # 多相机并行渲染依赖
-scripts/collect_data.py     # 一键数据采集（auto / keyboard）
-src/mujoco_lerobot/         # 主包
+configs/                    # YAML 配置
+  ├── tasks/tasks.yaml      #   任务（scene / teacher 连接、物体随机化范围）
+  ├── scenes/               #   机器人 / 相机 / 评估视角
+  ├── dataset/              #   数据记录格式（use_recode_scale / features / depth_range）
+  ├── teachers/             #   scripted teacher 参数
+  ├── policy/               #   策略训练配置（adaptive_act.yaml）
+  └── simulate_default.yaml #   仿真 / 控制频率、采集参数
+assets/mujoco/              # MuJoCo 场景与机器人模型（scenes / robot / objects）
+libs/mujoco_camrender/      # 多相机并行渲染库（C++ + pybind11，submodule）
+scripts/collect_data.py     # 一键数据采集（teacher / keyboard）
+src/mujoco_lerobot/         # 主包（仿真核心）
   ├── configs/              # 配置加载（含 use_recode_scale）
-  ├── simulate/             # MuJoCo 封装、IK、相机渲染
+  ├── simulate/             # MuJoCo 封装、IK（mink）、相机渲染
   └── data/                 # 采集（采集器/控制器/teacher/写入器/调度器）
-src/lerobot_env_mujoco_lerobot/          # LeRobot 环境插件（gym 环境 + EnvConfig）
-src/lerobot_policy_Adaptive_ACT/         # 自适应 ACT 策略插件
+src/lerobot_env_mujoco_lerobot/          # LeRobot 评估环境插件（gym 环境 + EnvConfig）
+src/lerobot_policy_Adaptive_ACT/         # 自适应 ACT 策略插件（adaptive_act）
 tests/                      # 单元测试（env / 策略 / 诊断 rollout）
+outputs/
+  ├── datasets/<任务名>/<时间戳>/   # 采集的数据集
+  ├── train/<时间戳>/               # 训练输出（checkpoints）
+  └── eval/<日期>/                  # 评估输出（视频 / 录制）
 ```

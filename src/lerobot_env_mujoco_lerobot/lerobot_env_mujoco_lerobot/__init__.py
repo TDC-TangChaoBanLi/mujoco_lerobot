@@ -10,6 +10,11 @@ Usage:
 
 from __future__ import annotations
 
+# 无头环境时在首个 `import mujoco` 之前切到 EGL 离屏后端（见 gl_setup.py）。
+from mujoco_lerobot.gl_setup import configure as _configure_headless_gl
+
+_configure_headless_gl()
+
 try:
     import lerobot  # noqa: F401
 except ImportError as exc:  # pragma: no cover

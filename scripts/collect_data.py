@@ -19,13 +19,25 @@
         --dataset-config configs/dataset/dataset_dual_pick_place.yaml \
         --mode keyboard
 
-    # 补充数据：在已有数据集上追加 episodes（先校验配置一致，不一致会报错）
+    # 补充数据：在已有数据集上追加（先校验配置一致，不一致会报错）。
+    # --append 下 --episodes 表示"本轮新增条数"：总量 = 已有 + 新增
     uv run python scripts/collect_data.py \
         --task-config configs/tasks/tasks.yaml \
         --task pick_place \
         --dataset-config configs/dataset/dataset_pick_place.yaml \
         --append outputs/datasets/pick_place/20260808_184250 \
         --episodes 20 \
+        --no-render
+
+    # 自定义 repo_id 与数据集输出目录（--output-dir 为精确目录，
+    # 不再自动附加 <任务名>/<时间戳> 子目录）
+    uv run python scripts/collect_data.py \
+        --task-config configs/tasks/tasks.yaml \
+        --task pick_place \
+        --dataset-config configs/dataset/dataset_pick_place.yaml \
+        --repo-id my_org/my_pick_place \
+        --output-dir outputs/datasets/my_pick_place \
+        --episodes 50 \
         --no-render
 
 键盘控制（keyboard 模式）：
@@ -83,10 +95,16 @@ def parse_args() -> argparse.Namespace:
                    help="数据集记录格式配置文件路径（--task list 时不需要）")
     p.add_argument("--mode", choices=["teacher", "keyboard"], default="teacher",
                    help="采集模式")
-    p.add_argument("--episodes", type=int, default=50, help="目标 episode 数")
+    p.add_argument("--episodes", type=int, default=50,
+                   help="目标 episode 数（--append 时为本轮新增条数，总量 = 已有 + 新增）")
     p.add_argument("--max-time", type=float, default=None,
                    help="每 episode 仿真时间上限（秒），默认取 simulate_default 配置")
+    p.add_argument("--repo-id", default=None,
+                   help="数据集 repo_id（默认 mujoco_<任务名>，如 mujoco_pick_place）")
     p.add_argument("--output", default="outputs/datasets", help="输出根目录")
+    p.add_argument("--output-dir", default=None,
+                   help="直接指定数据集输出目录（精确路径，不再自动附加 <任务名>/<时间戳> 子目录；"
+                        "默认在 --output 下按 <任务名>/<时间戳> 组织）")
     p.add_argument("--append", default=None, metavar="DIR",
                    help="补充数据：在已有数据集目录上追加 episodes"
                         "（追加前校验当前配置与原有记录配置一致）")
@@ -97,7 +115,7 @@ def parse_args() -> argparse.Namespace:
 
 def build_writer(args, scene_cfg, dataset_cfg) -> LeRobotDatasetWriter:
     wcfg = LeRobotDatasetConfig(
-        repo_id=f"mujoco_{scene_cfg.task.name}",
+        repo_id=args.repo_id or f"mujoco_{scene_cfg.task.name}",
         root=None,  # 下方按模式填充
         fps=int(round(dataset_cfg.recode_hz)),
         cameras=scene_cfg.cameras,
@@ -108,9 +126,14 @@ def build_writer(args, scene_cfg, dataset_cfg) -> LeRobotDatasetWriter:
         wcfg.root = Path(args.append).expanduser().resolve()
         return LeRobotDatasetWriter.resume(wcfg, dataset_cfg=dataset_cfg)
 
-    # 新建数据集：时间戳子目录
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    wcfg.root = (Path(args.output) / scene_cfg.task.name / ts).resolve()
+    # 新建数据集：默认按 <output>/<task>/<时间戳> 组织；
+    # 指定 --output-dir 时直接写入该精确目录（不再附加任务名/时间戳子目录）
+    if args.output_dir:
+        root = Path(args.output_dir)
+    else:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        root = Path(args.output) / scene_cfg.task.name / ts
+    wcfg.root = root.resolve()
     return LeRobotDatasetWriter.create_new(
         wcfg, dataset_cfg=dataset_cfg, overwrite=args.overwrite
     )
@@ -268,6 +291,7 @@ def main() -> None:
     print(f"  记录: {dataset_cfg.recode_hz:.0f} Hz  "
           f"use_recode_scale={dataset_cfg.use_recode_scale}  "
           f"max_scale={dataset_cfg.max_scale}")
+    print(f"  repo_id: {args.repo_id or f'mujoco_{args.task}'}")
     print(f"  臂: {[r.name for r in scene_cfg.robots]}  "
           f"相机: {[c.name for c in scene_cfg.cameras]}")
     print(f"  state_dim={dataset_cfg.state_dim}  "
