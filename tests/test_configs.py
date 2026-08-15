@@ -11,6 +11,7 @@ from mujoco_lerobot.configs import (
     get_task_list,
     load_teacher_config,
 )
+from mujoco_lerobot.configs.config_loader import RobotConfig
 from mujoco_lerobot.configs.dataset_config import DatasetConfig
 
 
@@ -21,6 +22,7 @@ def test_load_tasks():
     tasks = load_tasks(TASK_CONFIG)
     assert "pick_place" in tasks
     assert "dual_pick_place" in tasks
+    assert "push_t" in tasks
     assert tasks["pick_place"].scene_config_file  # 场景配置连接
     assert tasks["pick_place"].teacher_config_file  # teacher 配置连接
 
@@ -29,6 +31,7 @@ def test_get_task_list():
     tl = get_task_list(TASK_CONFIG)
     assert "pick_place" in tl
     assert "dual_pick_place" in tl
+    assert "push_t" in tl
 
 
 def test_load_scene_config_pick_place():
@@ -53,6 +56,36 @@ def test_load_scene_config_dual():
     assert sc.robots[0].prefix == "A_"
     assert sc.action_dim == 14
     assert len(sc.cameras) == 3
+    # 双臂 ik_solver 配置（vel_limit 显式写）
+    for r in sc.robots:
+        assert r.ik_solver.vel_limit == [3.1416] * 6
+        assert r.ik_solver.collision_avoidance.enabled is False
+
+
+def test_robot_ik_solver_defaults():
+    """未配置 ik_solver 时使用与旧硬编码一致的默认值。"""
+    r = RobotConfig.from_dict({"name": "ur5e"})
+    ik = r.ik_solver
+    assert ik.vel_limit == [3.1416] * 6
+    assert ik.pos_cost == 1.0
+    assert ik.ori_cost == 1.0
+    assert ik.gain == 1.0
+    assert ik.lm_damping == 1e-6
+    assert ik.posture_cost == 1e-3
+    assert ik.solver == "daqp"
+    assert ik.damping == 1e-12
+    assert ik.safety_break is False
+    assert ik.max_iters == 1
+    assert ik.pos_threshold == 0.01
+    assert ik.ori_threshold == 0.1
+    ca = ik.collision_avoidance
+    assert ca.enabled is False
+    assert ca.gain == 0.85
+    assert ca.minimum_distance == 0.005
+    assert ca.detection_distance == 0.01
+    assert ca.bound_relaxation == 0.0
+    assert ca.broadphase is True
+    assert ca.pairs == []
 
 
 def test_dataset_config_pick_place():
@@ -163,9 +196,57 @@ def test_teacher_configs():
     assert tc2.grasp_euler_a is not None
 
 
-def test_dataset_camera_crf_defaults():
-    """默认数据集配置：depth_crf/rgb_crf 未指定（None），视频编码走默认（深度无损、rgb CRF=30）。"""
-    dc = DatasetConfig.from_yaml("configs/dataset/dataset_pick_place.yaml")
+def test_scene_config_push_t():
+    sc = load_scene_config("push_t", TASK_CONFIG)
+    assert len(sc.robots) == 1
+    assert sc.robots[0].prefix == ""
+    assert sc.action_dim == 7
+    assert len(sc.cameras) == 2
+    assert {c.name for c in sc.cameras} == {
+        "global_realsense_link_CAMERA",
+        "realsense_link_CAMERA",
+    }
+    # default_qpos 应使 TCP 初始落在可推动高度带内（见场景注释）
+    assert sc.robots[0].default_qpos[0] == 3.14159
+
+
+def test_teacher_config_push_t():
+    tc = load_teacher_config("configs/teachers/push_t.yaml")
+    assert tc.type == "PushTTeacher"
+    assert tc.t_obj == "t_obj"
+    assert tc.t_target == "t_target"
+    assert tc.workspace_x == (-0.6, 0.6)
+    assert tc.workspace_y == (-0.45, 0.45)
+    assert tc.tcp_z_min == 0.62 and tc.tcp_z_max == 0.85
+    assert tc.push_z_min == 0.66 and tc.push_z_max == 0.72
+    assert tc.sens_mouse == 1.5 and tc.sens_wheel == 0.008
+    assert tc.success_dist == 0.05 and tc.success_yaw == 0.35
+
+
+def test_dataset_config_push_t():
+    dc = DatasetConfig.from_yaml("configs/dataset/dataset_push_t.yaml")
+    assert dc.use_recode_scale is False
+    assert dc.recode_hz == 100.0
+    assert dc.max_scale == 1
+    assert dc.state_dim == 7
+    assert dc.action_dim == 7
+    assert dc.flat_mode is True
+    assert dc.depth_range == (0.1, 2.0)
+    assert dc.camera_config_file.endswith("scene_push_t.yaml")
+
+
+def test_dataset_camera_crf_defaults(tmp_path):
+    """未指定 depth_crf/rgb_crf 时：视频编码走默认（深度无损、rgb CRF=30）。"""
+    import yaml
+    from pathlib import Path
+
+    raw = yaml.safe_load(Path("configs/dataset/dataset_pick_place.yaml").read_text())
+    cam = raw["state"]["camera"]
+    cam.pop("depth_crf", None)
+    cam.pop("rgb_crf", None)
+    p = tmp_path / "ds_default.yaml"
+    p.write_text(yaml.safe_dump(raw))
+    dc = DatasetConfig.from_yaml(str(p))
     assert dc.depth_crf is None
     assert dc.rgb_crf is None
 
@@ -177,6 +258,13 @@ def test_dataset_camera_crf_defaults():
     assert "lossless=1" in depth_enc.extra_options.get("x265-params", "")
     # rgb 默认 CRF=30
     assert rgb_enc.crf == 30
+
+
+def test_dataset_camera_crf_pick_place_config():
+    """pick_place 数据集配置当前显式指定了画质 CRF。"""
+    dc = DatasetConfig.from_yaml("configs/dataset/dataset_pick_place.yaml")
+    assert dc.depth_crf == 15
+    assert dc.rgb_crf == 20
 
 
 def test_dataset_camera_crf_override(tmp_path):

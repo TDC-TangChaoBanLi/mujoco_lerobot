@@ -31,6 +31,7 @@ from .teacher_config import (
     GripperCmd,
     PickPlaceTeacherConfig,
     DualPickPlaceTeacherConfig,
+    PushTTeacherConfig,
     load_teacher_config,
 )
 
@@ -43,5 +44,7 @@ __all__ = [
     "validate_config_vs_model", "resolve_config_path",
     "DataSource", "DatasetConfig",
     "TeacherThresh", "TeacherHeights", "GripperCmd",
-    "PickPlaceTeacherConfig", "DualPickPlaceTeacherConfig", "load_teacher_config",
+    "PickPlaceTeacherConfig", "DualPickPlaceTeacherConfig",
+    "PushTTeacherConfig",
+    "load_teacher_config",
 ]

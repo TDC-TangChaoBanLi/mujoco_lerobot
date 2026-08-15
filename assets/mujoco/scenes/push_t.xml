@@ -1,4 +1,7 @@
-<!-- push_t 场景 -->
+<!-- push_t 场景（T 物块推动）
+  机器人挂载工作区 +x 侧（基座 (0.9, 0, 0.7)），default_qpos pan=π 使
+  TCP 初始落在工作区上方；全局 D435 俯视相机覆盖整个工作区。
+-->
 <mujoco model="push_t_scene">
   <compiler angle="radian" balanceinertia="true" meshdir="../robot/meshes"/>
   <option timestep="0.001" cone="elliptic" impratio="10"/>
@@ -9,15 +12,36 @@
   </visual>
   <statistic center="0.45 0 0.3" extent="0.8"/>
   <asset>
+    <model name="ur5_full" file="../robot/ur5e_full.xml"/>
+    <model name="table" file="../objects/table.xml"/>
+    <model name="t_obj" file="../objects/t_obj.xml"/>
+    <model name="t_target" file="../objects/t_target.xml"/>
+    <model name="realsense_d435" file="../robot/realsense_d435.xml"/>
     <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
   </asset>
 
-  <include file="../objects/table.xml"/>
-  <include file="../robot/ur5e_full.xml"/>
-
-    <include file="../objects/t_obj.xml"/>
-    <include file="../objects/t_target.xml"/>
   <worldbody>
+    <!-- 桌子 -->
+    <body name="table_mount" pos="0.0 0 0" quat="0 0 0 1">
+      <attach model="table" body="table_top" prefix=""/>
+    </body>
+    <!-- RealSense D435 全局相机（俯视工作区） -->
+    <body name="global_realsense_d435_mount" pos="0.45 0 1.35" euler="3.14159 0 0">
+      <attach model="realsense_d435" body="realsense_bottom_screw_frame" prefix="global_"/>
+    </body>
+    <!-- T 物块（freejoint 由 ResetManager 随机化） -->
+    <body name="t_obj_mount" pos="0.45 0 0.65">
+      <freejoint/>
+      <attach model="t_obj" body="t_obj" prefix=""/>
+    </body>
+    <!-- T 物块目标（纯视觉标识，无碰撞） -->
+    <body name="t_target_mount" pos="0.45 0.15 0.62">
+      <attach model="t_target" body="t_target" prefix=""/>
+    </body>
+    <!-- UR5 机器人（工作区 +x 侧，pan=π 使臂伸向 -x 覆盖工作区） -->
+    <body name="ur_mount" pos="0.9 0 0.7" quat="1 0 0 0">
+      <attach model="ur5_full" body="ur_base_link_inertia" prefix=""/>
+    </body>
     <geom name="floor" type="plane" size="0 0 0.05" rgba="0.4 0.4 0.45 1"/>
     <light name="overhead" pos="0 0 2" dir="0 0 -1" directional="true"/>
   </worldbody>

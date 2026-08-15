@@ -1,0 +1,57 @@
+# push_t 数据集记录格式（镜像 pick_place：扁平 / ACT 兼容）
+#
+# use_recode_scale (bool)：全局开关，决定数据集 feature 结构：
+#   true  = 启用 recode_scale 扩展：各数据源以 recode_hz × recode_scale 的频率
+#           采样，一个 LeRobot 帧内包含多个子采样（shape (R, D)），
+#           适用于自定义多速率模型（如 BiMFT）。
+#   false = 关闭：所有数据源按 recode_hz 记录，产出 LeRobot 标准扁平格式：
+#           state 各源拼接为 observation.state (state_dim,)，
+#           action 为 (action_dim,)，可直接用于 LeRobot 内置 ACT 等策略；
+#           并忽略所有 recode_scale 字段。
+use_recode_scale: false
+
+# 记录频率（LeRobot 数据集 fps）
+recode_hz: 100.0
+
+state:
+  recode_scale: 1
+  joint:
+    recode_scale: 3          # 多级嵌套则连乘 → 90 Hz 采样
+    position:
+      recode_scale: 1
+      joint_names:
+        - ur_shoulder_pan_joint
+        - ur_shoulder_lift_joint
+        - ur_elbow_joint
+        - ur_wrist_1_joint
+        - ur_wrist_2_joint
+        - ur_wrist_3_joint
+        - robotiq_85_left_knuckle_joint
+
+  # 相机：固定按 recode_hz 记录；渲染参数（image_size/fps）定义在场景配置中；
+  # 深度范围（depth_range）在此定义，lerobot 深度图像编码器按它量化深度。
+  camera:
+    scene_config_file: configs/scenes/scene_push_t.yaml
+    depth_range: [0.1, 2.0]      # 深度范围 (米)，用于深度编码
+    # 视频画质控制（CRF，越小越清晰、文件越大）。不设置则用默认值：
+    #   depth_crf: null → 深度用无损 HEVC（不引入视频误差，但文件大，约 rgb 的 18 倍）
+    #                设置（如 30）→ 深度改有损 HEVC，按该 CRF 压缩
+    #   rgb_crf:   null → rgb 用 lerobot 默认 CRF=30
+    #                设置（如 18）→ rgb 用该 CRF（更高画质、文件更大）
+    depth_crf: 15
+    rgb_crf: 20
+
+action:
+  recode_scale: 3
+  joint:
+    recode_scale: 1
+    position:
+      recode_scale: 1
+      joint_names:
+        - ur_shoulder_pan_joint
+        - ur_shoulder_lift_joint
+        - ur_elbow_joint
+        - ur_wrist_1_joint
+        - ur_wrist_2_joint
+        - ur_wrist_3_joint
+        - robotiq_85_left_knuckle_joint

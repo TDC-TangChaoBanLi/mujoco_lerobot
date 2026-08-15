@@ -157,6 +157,86 @@ class DualPickPlaceTeacherConfig:
         )
 
 
+# ── PushT 遥操作 Teacher 配置 ─────────────────────────
+#
+# PushT 鼠标遥操作的所有参数（窗口 / TCP / 可推动带 / 灵敏度 / 成功阈值）
+# 扁平化在单一 PushTTeacherConfig 中，对应 yaml 的嵌套结构：
+#   window: {width, height, workspace: {x_range, y_range}}
+#   tcp:    {z_min, z_max, initial_z}
+#   push:   {z_min, z_max}
+#   sens:   {mouse, wheel, step}
+#   success:{dist, yaw}
+
+
+@dataclass
+class PushTTeacherConfig:
+    """PushT 鼠标遥操作 teacher 配置（唯一的数据类，扁平化嵌套 yaml 参数）。"""
+
+    type: str = "PushTTeacher"
+    t_obj: str = "t_obj"
+    t_target: str = "t_target"
+    ee_site: str = "_tcp"
+    grasp_quat: tuple[float, float, float, float] = (0.0, 0.7071, 0.7071, 0.0)
+    gripper_cmd: float = 0.8
+    # window（2D 俯视窗口像素尺寸 + 展示的世界范围）
+    window_width: int = 800
+    window_height: int = 600
+    workspace_x: tuple[float, float] = (-0.6, 0.6)
+    workspace_y: tuple[float, float] = (-0.45, 0.45)
+    # tcp（TCP 高度范围）
+    tcp_z_min: float = 0.62
+    tcp_z_max: float = 0.85
+    tcp_initial_z: float = 0.68
+    # push（可推动高度带：TCP z 落在此范围内可在水平面推动 T 物块）
+    push_z_min: float = 0.66
+    push_z_max: float = 0.72
+    # sens（鼠标 / 滚轮灵敏度初值与调节步长；invert_x/y 为鼠标方向反转修正）
+    sens_mouse: float = 1.5
+    sens_wheel: float = 0.008
+    sens_step: float = 0.1
+    sens_invert_x: bool = False
+    sens_invert_y: bool = False
+    # success（成功判定阈值：T 中心到目标距离 + yaw 差）
+    success_dist: float = 0.05
+    success_yaw: float = 0.35
+
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> "PushTTeacherConfig":
+        raw = _load_yaml(resolve_config_path(path))
+        objects = raw.get("objects", {}) or {}
+        quat = raw.get("grasp_quat", [0.0, 0.7071, 0.7071, 0.0])
+        window = raw.get("window", {}) or {}
+        ws = window.get("workspace", {}) or {}
+        tcp = raw.get("tcp", {}) or {}
+        push = raw.get("push", {}) or {}
+        sens = raw.get("sens", {}) or {}
+        success = raw.get("success", {}) or {}
+        return cls(
+            type=str(raw.get("type", cls.type)),
+            t_obj=str(objects.get("t_obj", "t_obj")),
+            t_target=str(objects.get("t_target", "t_target")),
+            ee_site=str(raw.get("ee_site", "_tcp")),
+            grasp_quat=tuple(float(v) for v in quat),
+            gripper_cmd=_f(raw, "gripper_cmd", cls.gripper_cmd),
+            window_width=_i(window, "width", cls.window_width),
+            window_height=_i(window, "height", cls.window_height),
+            workspace_x=_tup(ws, "x_range", cls.workspace_x),
+            workspace_y=_tup(ws, "y_range", cls.workspace_y),
+            tcp_z_min=_f(tcp, "z_min", cls.tcp_z_min),
+            tcp_z_max=_f(tcp, "z_max", cls.tcp_z_max),
+            tcp_initial_z=_f(tcp, "initial_z", cls.tcp_initial_z),
+            push_z_min=_f(push, "z_min", cls.push_z_min),
+            push_z_max=_f(push, "z_max", cls.push_z_max),
+            sens_mouse=_f(sens, "mouse", cls.sens_mouse),
+            sens_wheel=_f(sens, "wheel", cls.sens_wheel),
+            sens_step=_f(sens, "step", cls.sens_step),
+            sens_invert_x=bool(sens.get("invert_x", cls.sens_invert_x)),
+            sens_invert_y=bool(sens.get("invert_y", cls.sens_invert_y)),
+            success_dist=_f(success, "dist", cls.success_dist),
+            success_yaw=_f(success, "yaw", cls.success_yaw),
+        )
+
+
 # ── 统一加载入口 ──────────────────────────────────────
 
 

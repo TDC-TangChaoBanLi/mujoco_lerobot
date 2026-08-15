@@ -112,12 +112,12 @@
 
   <!-- ========== Actuators ========== -->
   <actuator>
-    <position name="ur_shoulder_pan_joint_ACTUATOR"  joint="ur_shoulder_pan_joint"  kp="200" dampratio="1.0" ctrlrange="-6.2832 6.2832"/>
-    <position name="ur_shoulder_lift_joint_ACTUATOR"  joint="ur_shoulder_lift_joint"  kp="200" dampratio="1.0" ctrlrange="-6.2832 6.2832"/>
-    <position name="ur_elbow_joint_ACTUATOR"           joint="ur_elbow_joint"         kp="100" dampratio="1.0" ctrlrange="-3.1416 3.1416"/>
-    <position name="ur_wrist_1_joint_ACTUATOR"          joint="ur_wrist_1_joint"        kp="50"  dampratio="1.0" ctrlrange="-6.2832 6.2832"/>
-    <position name="ur_wrist_2_joint_ACTUATOR"          joint="ur_wrist_2_joint"        kp="50"  dampratio="1.0" ctrlrange="-6.2832 6.2832"/>
-    <position name="ur_wrist_3_joint_ACTUATOR"          joint="ur_wrist_3_joint"        kp="50"  dampratio="1.0" ctrlrange="-6.2832 6.2832"/>
+    <position name="ur_shoulder_pan_joint_ACTUATOR"  joint="ur_shoulder_pan_joint"  kp="600" dampratio="0.9" ctrlrange="-6.2832 6.2832"/>
+    <position name="ur_shoulder_lift_joint_ACTUATOR"  joint="ur_shoulder_lift_joint"  kp="600" dampratio="0.9" ctrlrange="-6.2832 6.2832"/>
+    <position name="ur_elbow_joint_ACTUATOR"           joint="ur_elbow_joint"         kp="300" dampratio="0.9" ctrlrange="-3.1416 3.1416"/>
+    <position name="ur_wrist_1_joint_ACTUATOR"          joint="ur_wrist_1_joint"        kp="150"  dampratio="0.9" ctrlrange="-6.2832 6.2832"/>
+    <position name="ur_wrist_2_joint_ACTUATOR"          joint="ur_wrist_2_joint"        kp="120"  dampratio="0.9" ctrlrange="-6.2832 6.2832"/>
+    <position name="ur_wrist_3_joint_ACTUATOR"          joint="ur_wrist_3_joint"        kp="100"  dampratio="0.9" ctrlrange="-6.2832 6.2832"/>
     <position name="robotiq_85_left_knuckle_joint_ACTUATOR" joint="robotiq_85_left_knuckle_joint" kp="5" dampratio="1.0" ctrlrange="0.0 0.7929" forcerange="-1.0 1.0"/>
   </actuator>
 

@@ -1,8 +1,7 @@
-# 单臂 Pick-and-Place 场景配置（与 assets/mujoco/scenes/pick_place.xml 对应）
+# push_t 场景配置（与 assets/mujoco/scenes/push_t.xml 对应）
+# 机器人挂载工作区 +x 侧，default_qpos pan=π 使 TCP 初始落在工作区上方。
 # 相机参数（image_size/fps）是渲染的实际参数；
-# 若与 mjcf 中 camera 的 resolution/fovy 冲突，加载时会打印警告。
-# 深度范围（depth_range）不属于渲染参数，由数据集配置定义
-# （configs/dataset/dataset_pick_place.yaml → state.camera.depth_range）。
+# 深度范围（depth_range）不属于渲染参数，由数据集配置定义。
 
 # ── 机器人 ──
 robot:
@@ -18,26 +17,28 @@ robot:
     gripper_joints:
       - robotiq_85_left_knuckle_joint
     ee_site: "_tcp"
-    default_qpos: [0.0, -1.32, 1.32, -1.57, -1.57, 0.0]
+    # pan=π 使臂朝向工作区（-x 方向）；其余关节组合使 TCP 初始落点在
+    # (0.34, -0.13, 0.69)，恰在可推动高度带 [0.66, 0.72] 内，开局即可推 T。
+    default_qpos: [3.14159, -1.0, 1.8, -2.2, -1.57, 0.0]
     # IK 求解器参数（mink），含义见 src/mujoco_lerobot/simulate/ik_solver.py
     ik_solver:
       vel_limit: [3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 3.1416] # 关节角速度限制 (rad/s)
 
 # ── 视角（评估可视化 / 数据采集初始视角 / eval 视频渲染）──
 view:
-  lookat: [0.0, 0.0, 0.65]   # 相机注视点
-  distance: 1.8               # 相机距离
+  lookat: [0.35, 0.0, 0.65]  # 相机注视点（工作区中心）
+  distance: 1.6               # 相机距离
   elevation: -30.0            # 俯仰角（度）
   azimuth: 135.0              # 方位角（度）
   image_size: [640, 480]      # eval 视频分辨率 (W, H)
 
 # ── 相机 ──
 camera:
-  - name: "global_realsense_link_CAMERA"
+  - name: "global_realsense_link_CAMERA"   # 全局俯视相机
     fps: 30
     image_size: [640, 480]
     type: "rgb_depth"
-  - name: "realsense_link_CAMERA"   # 与 mjcf 中的 camera name 一致
+  - name: "realsense_link_CAMERA"   # 与 mjcf 中的 camera name 一致（手眼）
     fps: 30                          # 相机渲染帧率
     image_size: [640, 480]           # 图像尺寸 (W, H)
     type: "rgb_depth"                # "gray" | "rgb" | "depth" | "rgb_depth"

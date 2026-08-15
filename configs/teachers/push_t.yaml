@@ -1,0 +1,48 @@
+# PushT 鼠标遥操作 Teacher 配置
+# 人类通过 2D 俯视窗口控制 TCP 在水平面移动，推动 T 物块到目标位置。
+# 参数含义见 src/mujoco_lerobot/configs/teacher_config.py → PushTTeacherConfig
+
+type: PushTTeacher
+
+objects:
+  t_obj: t_obj          # T 物块 body 名称（场景 mjcf 中）
+  t_target: t_target    # 目标 T body 名称
+ee_site: _tcp
+
+grasp_quat: [0.0, 0.7071, 0.7071, 0.0]   # 夹爪朝下基础四元数 (w,x,y,z)
+gripper_cmd: 0.8                          # 推动时夹爪闭合指令
+
+# 遥操作窗口
+window:
+  width: 800             # 窗口像素宽
+  height: 600            # 窗口像素高
+  workspace:
+    x_range: [-0.6, 0.6]    # 世界 x 范围（全部展示在窗口中）
+    y_range: [-0.45, 0.45]  # 世界 y 范围
+
+# TCP 高度范围（滚轮控制，裁剪到此范围）
+tcp:
+  z_min: 0.62
+  z_max: 0.85
+  initial_z: 0.68
+
+# 可推动高度带：TCP z 在此范围内时，能在水平面推动 T 物块（状态栏指示）
+push:
+  z_min: 0.66
+  z_max: 0.72
+
+# 灵敏度初值与调节步长（[ ] 调鼠标、- = 调滚轮）
+# invert_x / invert_y：鼠标增量方向反转修正。本环境（grab 模式下
+# SDL/XInput2 raw motion 轴映射异常）真实鼠标增量与物理移动 180° 相反，
+# 故设为 true；标准环境应改回 false。
+sens:
+  mouse: 1.5
+  wheel: 0.008
+  step: 0.1
+  invert_x: true
+  invert_y: true
+
+# 成功判定（评估环境 / check_success 使用）
+success:
+  dist: 0.05    # T 中心到目标中心距离 (m)
+  yaw: 0.35     # yaw 差阈值 (rad)

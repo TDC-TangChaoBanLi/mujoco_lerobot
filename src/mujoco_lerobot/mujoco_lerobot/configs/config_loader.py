@@ -82,6 +82,98 @@ class CollectionParams:
 
 
 @dataclass
+class CollisionAvoidanceConfig:
+    """mink CollisionAvoidanceLimit 配置（默认关闭，场景按需开启）。
+
+    参数含义见 mink.CollisionAvoidanceLimit：
+      - pairs: list[list[str]] 每组两个 geom 名称列表（简短名自动匹配
+        `{prefix}COLLISION_{name}*`，支持显式写完整 geom 名或对侧臂名）。
+    """
+
+    enabled: bool = False
+    gain: float = 0.85
+    minimum_distance: float = 0.005
+    detection_distance: float = 0.01
+    bound_relaxation: float = 0.0
+    broadphase: bool = True
+    pairs: list[tuple[list[str], list[str]]] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> "CollisionAvoidanceConfig":
+        if not d:
+            return cls()
+        raw_pairs = d.get("pairs", []) or []
+        pairs: list[tuple[list[str], list[str]]] = []
+        for p in raw_pairs:
+            if len(p) != 2:
+                raise ValueError(f"collision_avoidance.pairs 每项须为 [geomA列表, geomB列表]: {p}")
+            pairs.append(([str(g) for g in p[0]], [str(g) for g in p[1]]))
+        return cls(
+            enabled=bool(d.get("enabled", False)),
+            gain=float(d.get("gain", cls.gain)),
+            minimum_distance=float(d.get("minimum_distance", cls.minimum_distance)),
+            detection_distance=float(d.get("detection_distance", cls.detection_distance)),
+            bound_relaxation=float(d.get("bound_relaxation", cls.bound_relaxation)),
+            broadphase=bool(d.get("broadphase", True)),
+            pairs=pairs,
+        )
+
+
+@dataclass
+class IKSolverConfig:
+    """mink 逆运动学求解器参数（`robot/ik_solver` 子块）。
+
+    默认值与 MinkIK 原有硬编码一致，保证未配置时行为不变。
+    vel_limit 缺省为 [3.1416]*6（UR 类关节典型限速）。
+    """
+
+    vel_limit: list[float] = field(
+        default_factory=lambda: [3.1416] * 6
+    )
+    # FrameTask
+    pos_cost: float = 1.0
+    ori_cost: float = 1.0
+    gain: float = 1.0
+    lm_damping: float = 1e-6
+    # PostureTask
+    posture_cost: float = 1e-3
+    # solve_ik
+    solver: str = "daqp"
+    damping: float = 1e-12
+    safety_break: bool = False
+    # 多迭代收敛（max_iters=1 等价于单次求解）
+    max_iters: int = 1
+    pos_threshold: float = 0.01
+    ori_threshold: float = 0.1
+    # 碰撞避免
+    collision_avoidance: CollisionAvoidanceConfig = field(
+        default_factory=CollisionAvoidanceConfig
+    )
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> "IKSolverConfig":
+        if not d:
+            return cls()
+        return cls(
+            vel_limit=[float(v) for v in d.get("vel_limit", [3.1416] * 6)],
+            pos_cost=float(d.get("pos_cost", cls.pos_cost)),
+            ori_cost=float(d.get("ori_cost", cls.ori_cost)),
+            gain=float(d.get("gain", cls.gain)),
+            lm_damping=float(d.get("lm_damping", cls.lm_damping)),
+            posture_cost=float(d.get("posture_cost", cls.posture_cost)),
+            solver=str(d.get("solver", cls.solver)),
+            damping=float(d.get("damping", cls.damping)),
+            safety_break=bool(d.get("safety_break", False)),
+            max_iters=int(d.get("max_iters", 1)),
+            pos_threshold=float(d.get("pos_threshold", cls.pos_threshold)),
+            ori_threshold=float(d.get("ori_threshold", cls.ori_threshold)),
+            collision_avoidance=CollisionAvoidanceConfig.from_dict(
+                d.get("collision_avoidance")
+            ),
+        )
+
+
+@dataclass
 class RobotConfig:
     """场景中一个机械臂实例的配置。"""
 
@@ -91,6 +183,7 @@ class RobotConfig:
     gripper_joints: list[str] = field(default_factory=list)
     ee_site: str = "_tcp"
     default_qpos: list[float] = field(default_factory=list)
+    ik_solver: IKSolverConfig = field(default_factory=IKSolverConfig)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "RobotConfig":
@@ -101,6 +194,7 @@ class RobotConfig:
             gripper_joints=[str(j) for j in d.get("gripper_joints", [])],
             ee_site=str(d.get("ee_site", "_tcp")),
             default_qpos=[float(v) for v in d.get("default_qpos", [])],
+            ik_solver=IKSolverConfig.from_dict(d.get("ik_solver")),
         )
 
     @property

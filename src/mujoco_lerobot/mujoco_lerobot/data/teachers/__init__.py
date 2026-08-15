@@ -59,12 +59,17 @@ def create_teacher(
     data: mujoco.MjData,
     config: Any | None = None,
     prefix: str = "",
+    **kwargs: Any,
 ) -> Teacher:
-    """按 teacher 类型实例化 teacher（自动发现注册的子类）。"""
+    """按 teacher 类型实例化 teacher（自动发现注册的子类）。
+
+    ``**kwargs``（如 ``state=TeleopState``）透传给 teacher 构造，
+    供遥操作类 teacher 注入共享状态。
+    """
     cls = TEACHER_REGISTRY.get(teacher_type)
     if cls is None:
         raise KeyError(f"未知 teacher 类型: {teacher_type!r}。可用: {sorted(TEACHER_REGISTRY)}")
-    return cls(model, data, config=config, prefix=prefix)
+    return cls(model, data, config=config, prefix=prefix, **kwargs)
 
 
 def get_teacher_config_class(teacher_type: str) -> type:
@@ -84,7 +89,11 @@ def discover_teachers() -> dict[str, type[Teacher]]:
     新增任务时若在其它包中注册 teacher，可在此处或入口处 import 对应模块。
     """
     # 内置 teacher 模块（import 即触发 register_teacher）
-    from . import pick_place_teacher, dual_pick_place_teacher  # noqa: F401
+    from . import (  # noqa: F401
+        pick_place_teacher,
+        dual_pick_place_teacher,
+        push_t_teacher,
+    )
 
     return TEACHER_REGISTRY
 
@@ -97,9 +106,14 @@ def load_teacher_config_for_type(teacher_type: str, path: str) -> Any:
 
 
 # 导入内置 teacher 模块完成注册
-from . import pick_place_teacher, dual_pick_place_teacher  # noqa: E402,F401
+from . import (  # noqa: E402,F401
+    pick_place_teacher,
+    dual_pick_place_teacher,
+    push_t_teacher,
+)
 from .pick_place_teacher import PickPlaceTeacher, PickPlaceState  # noqa: E402
 from .dual_pick_place_teacher import DualPickPlaceTeacher, DualPickPhase  # noqa: E402
+from .push_t_teacher import PushTTeacher  # noqa: E402
 
 __all__ = [
     "Teacher",
@@ -108,6 +122,7 @@ __all__ = [
     "PickPlaceState",
     "DualPickPlaceTeacher",
     "DualPickPhase",
+    "PushTTeacher",
     "TEACHER_REGISTRY",
     "TEACHER_CONFIG_REGISTRY",
     "register_teacher",

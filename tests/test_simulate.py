@@ -45,6 +45,89 @@ def test_mink_ik(pick_place_env):
     assert np.isfinite(jt).all()
 
 
+def test_mink_ik_ikconfig(pick_place_env):
+    """传 ik_config（来自场景 yaml robot/ik_solver）构造并求解。"""
+    sc, mj = pick_place_env
+    r0 = sc.robots[0]
+    ik = MinkIK(
+        mj.model, mj.data.qpos.copy(), dt=0.01,
+        ee_site_name=r0.prefixed_ee_site,
+        arm_joint_names=r0.prefixed_arm_joints,
+        ik_config=r0.ik_solver,
+        prefix=r0.prefix,
+    )
+    cur = mj.joint_qpos(r0.prefixed_arm_joints)
+    ee = mj.get_site_pose(r0.prefixed_ee_site)
+    target = ee.copy()
+    target[2] += 0.05
+    jt = ik.solve(cur, target)
+    assert jt.shape == (6,)
+    assert np.isfinite(jt).all()
+    # 场景配置的 vel_limit 应生效
+    assert ik._vel_limit == [3.1416] * 6
+
+
+def test_mink_ik_collision_avoidance(pick_place_env):
+    """启用 CollisionAvoidanceLimit：构造成功 + 求解有限 + 内部多一个 limit。"""
+    from mujoco_lerobot.configs.config_loader import (
+        CollisionAvoidanceConfig,
+        IKSolverConfig,
+    )
+
+    sc, mj = pick_place_env
+    r0 = sc.robots[0]
+    ik_cfg = IKSolverConfig(
+        collision_avoidance=CollisionAvoidanceConfig(
+            enabled=True,
+            pairs=[(["ur_wrist_3_link"], ["table_surface"])],
+        )
+    )
+    ik = MinkIK(
+        mj.model, mj.data.qpos.copy(), dt=0.01,
+        ee_site_name=r0.prefixed_ee_site,
+        arm_joint_names=r0.prefixed_arm_joints,
+        ik_config=ik_cfg,
+    )
+    # 简短名自动匹配 COLLISION_* geom + 精确名
+    ids = MinkIK._resolve_geom_ids(mj.model, "", ["ur_wrist_3_link", "table_surface"])
+    assert "COLLISION_ur_wrist_3_link_0" in {mj.model.geom(i).name for i in ids}
+    assert "table_surface" in {mj.model.geom(i).name for i in ids}
+    # ConfigurationLimit + VelocityLimit + CollisionAvoidanceLimit
+    assert len(ik._limits) == 3
+
+    cur = mj.joint_qpos(r0.prefixed_arm_joints)
+    ee = mj.get_site_pose(r0.prefixed_ee_site)
+    target = ee.copy()
+    target[2] += 0.05
+    jt = ik.solve(cur, target)
+    assert jt.shape == (6,)
+    assert np.isfinite(jt).all()
+
+
+def test_mink_ik_collision_avoidance_bad_geom(pick_place_env):
+    """配置了不存在的 geom 应抛出 ValueError 并提示。"""
+    from mujoco_lerobot.configs.config_loader import (
+        CollisionAvoidanceConfig,
+        IKSolverConfig,
+    )
+
+    sc, mj = pick_place_env
+    r0 = sc.robots[0]
+    ik_cfg = IKSolverConfig(
+        collision_avoidance=CollisionAvoidanceConfig(
+            enabled=True,
+            pairs=[(["nonexistent_geom"], ["table_surface"])],
+        )
+    )
+    with pytest.raises(ValueError, match="nonexistent_geom"):
+        MinkIK(
+            mj.model, mj.data.qpos.copy(), dt=0.01,
+            ee_site_name=r0.prefixed_ee_site,
+            arm_joint_names=r0.prefixed_arm_joints,
+            ik_config=ik_cfg,
+        )
+
+
 def test_camera_renderer(pick_place_env):
     sc, mj = pick_place_env
     mj.reset()
@@ -130,7 +213,9 @@ def test_teacher_registry_and_discovery():
     discover_teachers()
     assert "PickPlaceTeacher" in TEACHER_REGISTRY
     assert "DualPickPlaceTeacher" in TEACHER_REGISTRY
+    assert "PushTTeacher" in TEACHER_REGISTRY
     assert TEACHER_CONFIG_REGISTRY["PickPlaceTeacher"].__name__ == "PickPlaceTeacherConfig"
+    assert TEACHER_CONFIG_REGISTRY["PushTTeacher"].__name__ == "PushTTeacherConfig"
     # 配置自动加载（通过注册表而非硬编码）
     tc = load_teacher_config("configs/teachers/pick_place.yaml")
     assert tc.type == "PickPlaceTeacher"

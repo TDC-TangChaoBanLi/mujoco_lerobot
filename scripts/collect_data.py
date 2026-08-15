@@ -19,6 +19,14 @@
         --dataset-config configs/dataset/dataset_dual_pick_place.yaml \
         --mode keyboard
 
+    # PushT 鼠标遥操作采集（push_t 任务在 teacher 模式下自动启动
+    # pygame 2D 俯视窗口，无需单独模式；需图形界面 DISPLAY）
+    uv run python scripts/collect_data.py \
+        --task-config configs/tasks/tasks.yaml \
+        --task push_t \
+        --dataset-config configs/dataset/dataset_push_t.yaml \
+        --episodes 20
+
     # 补充数据：在已有数据集上追加（先校验配置一致，不一致会报错）。
     # --append 下 --episodes 表示"本轮新增条数"：总量 = 已有 + 新增
     uv run python scripts/collect_data.py \
@@ -93,8 +101,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--task", required=True, help="任务名（--task list 列出所有）")
     p.add_argument("--dataset-config", default=None,
                    help="数据集记录格式配置文件路径（--task list 时不需要）")
-    p.add_argument("--mode", choices=["teacher", "keyboard"], default="teacher",
-                   help="采集模式")
+    p.add_argument("--mode", choices=["teacher", "keyboard"],
+                   default="teacher",
+                   help="采集模式（keyboard 为 mujoco viewer 键盘遥操作；"
+                        "push_t 任务在 teacher 模式下自动启动鼠标遥操作窗口）")
     p.add_argument("--episodes", type=int, default=50,
                    help="目标 episode 数（--append 时为本轮新增条数，总量 = 已有 + 新增）")
     p.add_argument("--max-time", type=float, default=None,
@@ -145,7 +155,15 @@ def collect_teacher(
     dataset_cfg,
     writer,
 ) -> None:
-    """教师采集：scripted teacher 反复采集，成功保存，失败重试。"""
+    """教师采集：teacher 反复采集，成功保存，否则丢弃（可重试）。
+
+    完全任务无关：
+    - 录制生命周期由 teacher 的 ``recording_decision`` 控制（run_episode 内）
+    - 采集会话钩子 ``start_collection`` / ``end_collection`` 由 teacher 实现
+      （遥操作类 teacher 在此启动/关闭交互窗口，如 PushT 的 pygame 2D 窗口）
+    - 每 episode 尝试上限取 ``controller.retry_limit``（None = 场景配置
+      ``collection.max_attempts``；遥操作 teacher 通常为 1，用户丢弃即下一集）
+    """
     teacher_cfg = load_teacher_config(scene_cfg.task.teacher_config_file)
     mgr = SimulationManager(scene_cfg, dataset_cfg, render=not args.no_render)
     ctrl = ScriptedTeacherController(scene_cfg, teacher_cfg, mgr.model, mgr.data)
@@ -156,16 +174,18 @@ def collect_teacher(
     total_attempts = 0
 
     try:
+        ctrl.start_collection()  # teacher 钩子：如 PushT 启动遥操作窗口
         while collected < args.episodes:
             cb, flush, discard = writer.make_stream_callback(
                 task_label=scene_cfg.task.name
             )
 
             success = False
-            for _attempt in range(1, max_attempts + 1):
+            attempts = ctrl.retry_limit or max_attempts
+            for _attempt in range(1, attempts + 1):
                 try:
                     t_ep = time.perf_counter()
-                    n_frames = mgr.run_episode(
+                    result, n_frames = mgr.run_episode(
                         ctrl,
                         max_time=args.max_time,
                         frame_callback=cb,
@@ -179,7 +199,10 @@ def collect_teacher(
                 total_attempts += 1
                 ep_wall = time.perf_counter() - t_ep
 
-                if ctrl.is_success():
+                if result == "quit":
+                    print("  已退出采集")
+                    return
+                if result == "saved":
                     flush()
                     collected += 1
                     success = True
@@ -190,18 +213,19 @@ def collect_teacher(
                     )
                     break
                 else:
-                    # 失败：丢弃本集已写入的帧（不入库）
+                    # 失败（或用户丢弃）：本集帧不入库
                     discard()
                     print(
                         f"  ✗ 尝试 {total_attempts} 失败  frames={n_frames}  "
-                        f"ep_wall={ep_wall:.1f}s  (失败帧已丢弃，不入库)"
+                        f"ep_wall={ep_wall:.1f}s  (帧已丢弃，不入库)"
                     )
 
             if not success:
                 print(
-                    f"  ⚠ 连续 {max_attempts} 次失败，跳过本集，继续下一集"
+                    f"  ⚠ 连续 {attempts} 次失败，跳过本集，继续下一集"
                 )
     finally:
+        ctrl.end_collection()  # teacher 钩子：如 PushT 关闭遥操作窗口
         mgr.close()
 
     elapsed = time.perf_counter() - t0
@@ -212,19 +236,13 @@ def collect_teacher(
 
 def collect_keyboard(args, scene_cfg, dataset_cfg, writer) -> None:
     """键盘遥操作采集：mujoco viewer 实时控制。"""
-    flags = {"save": False, "discard": False, "quit": False}
     holder: dict = {}  # 延迟绑定 ctrl（mgr 构造时 ctrl 尚未创建）
 
     def key_cb(key: int) -> None:
-        if key == 256:      # Esc
-            flags["quit"] = True
-        elif key == 13:     # Enter
-            flags["save"] = True
-        elif key in (8, 127):  # Backspace
-            flags["discard"] = True
-        else:
-            ctrl = holder.get("ctrl")
-            if ctrl is not None:
+        ctrl = holder.get("ctrl")
+        if ctrl is not None:
+            # 录制控制键（Enter/Backspace/Esc）走 record_event，其余走移动键
+            if not ctrl.record_event(key):
                 ctrl.key_event(key)
 
     mgr = SimulationManager(
@@ -242,28 +260,26 @@ def collect_keyboard(args, scene_cfg, dataset_cfg, writer) -> None:
     collected = 0
     t0 = time.perf_counter()
     try:
-        while collected < args.episodes and not flags["quit"]:
-            flags["save"] = False
-            flags["discard"] = False
+        while collected < args.episodes:
             cb, flush, discard = writer.make_stream_callback(
                 task_label=scene_cfg.task.name
             )
-            mgr.run_episode(
+            result, n_frames = mgr.run_episode(
                 ctrl,
                 max_time=args.max_time,
                 frame_callback=cb,
-                stop_condition=lambda: flags["quit"],
             )
-            if flags["quit"]:
+            if result == "quit":
+                print("  已退出采集")
                 break
-            if flags["save"]:
+            if result == "saved":
                 flush()
                 collected += 1
                 print(f"  ✓ 保存 episode {collected}/{args.episodes}  "
-                      f"total={time.perf_counter()-t0:.0f}s")
+                      f"frames={n_frames}  total={time.perf_counter()-t0:.0f}s")
             else:
                 discard()
-                print("  ✗ 丢弃本集")
+                print(f"  ✗ 丢弃本集 (frames={n_frames})")
     finally:
         mgr.close()
 

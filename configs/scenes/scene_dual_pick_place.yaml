@@ -19,6 +19,15 @@ robot:
       - robotiq_85_left_knuckle_joint
     ee_site: "_tcp"
     default_qpos: [0.0, -1.32, 1.32, -1.57, -1.57, 0.0]
+    # IK 求解器参数（mink），含义见 src/mujoco_lerobot/simulate/ik_solver.py
+    ik_solver:
+      vel_limit: [3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 3.1416] # 关节角速度限制 (rad/s)
+      # collision_avoidance 默认关闭；开启示例（双臂互碰避免 + 腕部避桌面）：
+      # collision_avoidance:
+      #   enabled: true
+      #   pairs:
+      #     - [["A_ur_wrist_3_link"], ["B_ur_wrist_3_link", "B_robotiq_85_base_link"]]
+      #     - [["A_ur_wrist_3_link"], ["table_surface"]]
 
   - name: "B_ur5e"
     prefix: "B_"
@@ -33,6 +42,8 @@ robot:
       - robotiq_85_left_knuckle_joint
     ee_site: "_tcp"
     default_qpos: [0.0, -1.32, 1.32, -1.57, -1.57, 0.0]
+    ik_solver:
+      vel_limit: [3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 3.1416] # 关节角速度限制 (rad/s)
 
 # ── 视角（评估可视化 / 数据采集初始视角 / eval 视频渲染）──
 view:

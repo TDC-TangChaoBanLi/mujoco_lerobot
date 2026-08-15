@@ -32,6 +32,7 @@ from ..simulate.camera_renderer import CameraRenderer
 from ..simulate.mujoco_wrapper import MujocoWrapper
 from .controllers import Controller
 from .observation_collector import ObservationCollector
+from .recording import RecordingDecision
 from .reset_manager import ResetManager
 
 log = logging.getLogger(__name__)
@@ -118,11 +119,25 @@ class SimulationManager:
         *,
         max_time: float | None = None,
         frame_callback: Callable[[dict[str, Any], np.ndarray], None] | None = None,
-        stop_condition: Callable[[], bool] | None = None,
-    ) -> int:
-        """运行一条完整 episode，返回采集的帧数。
+    ) -> tuple[str, int]:
+        """运行一条 episode，录制生命周期由 controller 的 recording_decision 控制。
 
-        stop_condition: 每策略步检查，返回 True 时提前结束（如键盘 Esc/退出）。
+        每策略步询问 ``controller.recording_decision(recording)``：
+          START      开始录制（从此刻起采样 / 渲染相机 / 记录帧）
+          SAVED      结束并保存本集
+          DISCARDED  结束并丢弃本集
+          QUIT       结束并退出采集（或 viewer 被关闭）
+          None       继续
+
+        返回 (result, frame_count)：
+          result ∈ {"saved", "discarded", "quit"}
+            - saved     — controller 判定保存（SAVED）
+            - discarded — controller 判定丢弃（DISCARDED），或超时未明确结束
+            - quit      — controller 判定退出（QUIT），或 viewer 被关闭
+          frame_count  录制阶段实际写入的帧数（0 帧不产生有效保存）。
+
+        未录制阶段（等待期，如遥操作就位）：不采样、不渲染相机，仅做策略级
+        真实时间节流（~100Hz），保证人机交互反馈可感知。
         """
         t_max = max_time if max_time is not None else self._max_time
         dcfg = self._dataset_cfg
@@ -135,18 +150,14 @@ class SimulationManager:
         self._collector.reset()
         self._cam_timer = 0.0
 
-        # 初始相机帧：保证第一个记录帧即有图像；此后相机按自身 fps 渲染，
-        # 两次渲染之间的记录帧复用最近一帧相机图像（见 collector.flush）。
-        frames = self._renderer.render_all(self._mj.data)
-        self._collector.set_camera_frames(
-            {f.name: {"rgb": f.rgb, "depth": f.depth} for f in frames}
-        )
-
+        recording = False
         t_sim = t_policy = t_frame = t_sample = t_viewer = 0.0
+        n_policy = 0
         wall_start = time.perf_counter()
         frame_count = 0
         last_action = np.zeros(self._config.action_dim, dtype=np.float32)
         viewer_interval = 1.0 / VIEWER_FPS if self._render else float("inf")
+        result: str = "discarded"  # 自然结束（超时）默认丢弃
 
         while t_sim < t_max:
             self._mj.step()
@@ -156,33 +167,56 @@ class SimulationManager:
             t_sample += self._pdt
             t_viewer += self._pdt
 
-            # ── 子采样 ──
-            if t_sample >= sample_dt:
-                t_sample -= sample_dt
-                self._collector.sample()
+            # ── 录制中：子采样 + 相机渲染 ──
+            if recording:
+                # ── 子采样 ──
+                if t_sample >= sample_dt:
+                    t_sample -= sample_dt
+                    self._collector.sample()
 
-            # ── 相机渲染（最快相机帧率，一次并行渲染全部）──
-            self._cam_timer += self._pdt
-            if self._cam_timer >= self._cam_dt:
-                self._cam_timer -= self._cam_dt
-                frames = self._renderer.render_all(self._mj.data)
-                self._collector.set_camera_frames(
-                    {f.name: {"rgb": f.rgb, "depth": f.depth} for f in frames}
-                )
+                # ── 相机渲染（最快相机帧率，一次并行渲染全部）──
+                self._cam_timer += self._pdt
+                if self._cam_timer >= self._cam_dt:
+                    self._cam_timer -= self._cam_dt
+                    frames = self._renderer.render_all(self._mj.data)
+                    self._collector.set_camera_frames(
+                        {f.name: {"rgb": f.rgb, "depth": f.depth} for f in frames}
+                    )
 
             # ── 策略步 ──
             if t_policy >= self._adt:
                 t_policy -= self._adt
+                n_policy += 1
                 obs = {"arm_joint_pos": self._arm_joint_positions()}
                 action = controller.step(obs)
                 self._apply_action(action)
-                self._collector.update_last_action(action)
+                if recording:
+                    self._collector.update_last_action(action)
                 last_action = action
-                if stop_condition is not None and stop_condition():
-                    break
 
-            # ── 帧边界（recode）──
-            if t_frame >= frame_dt:
+                decision = controller.recording_decision(recording)
+                if decision is RecordingDecision.START:
+                    # 开始录制：清空可能的预采样，从此刻起计帧
+                    recording = True
+                    t_frame = t_sample = 0.0
+                    self._collector.reset()
+                    frames = self._renderer.render_all(self._mj.data)
+                    self._collector.set_camera_frames(
+                        {f.name: {"rgb": f.rgb, "depth": f.depth} for f in frames}
+                    )
+                elif decision is not None:
+                    result = decision.value
+                    break
+                elif not recording:
+                    # 等待阶段：策略级真实时间节流（~100Hz），
+                    # 保证窗口/键盘交互反馈可感知
+                    target = wall_start + n_policy * self._adt
+                    now = time.perf_counter()
+                    if target > now:
+                        time.sleep(target - now)
+
+            # ── 帧边界（recode，仅录制中）──
+            if recording and t_frame >= frame_dt:
                 t_frame -= frame_dt
                 if self._collector.is_ready():
                     frame = self._collector.flush(self._config.task.task_id)
@@ -192,21 +226,23 @@ class SimulationManager:
 
             # ── viewer ──
             if self._render:
-                # 真实时间节流
-                target = wall_start + t_sim
-                now = time.perf_counter()
-                if target > now:
-                    time.sleep(target - now)
+                if recording:
+                    # 录制阶段真实时间节流（与 wall_start 对齐）
+                    target = wall_start + t_sim
+                    now = time.perf_counter()
+                    if target > now:
+                        time.sleep(target - now)
                 if t_viewer >= viewer_interval:
                     t_viewer -= viewer_interval
                     self._mj.sync_viewer()
                     if not self._mj.is_viewer_running():
+                        result = "quit"
                         break
 
-            if controller.is_done():
-                break
-
-        return frame_count
+        # 0 帧不算有效保存（不产生空集）
+        if result != "quit" and frame_count <= 0:
+            result = "discarded"
+        return result, frame_count
 
     # ── 内部 ───────────────────────────────────────────
 

@@ -25,6 +25,24 @@ pick_place:
         y_range: [-0.20, 0.20]
         z_range: [0.65, 0.65]
 
+push_t:
+  scene_file: assets/mujoco/scenes/push_t.xml
+  scene_config_file: configs/scenes/scene_push_t.yaml
+  teacher_config_file: configs/teachers/push_t.yaml
+  task_id: 2
+  domain_randomization:
+    # T 物块在工作区随机生成（远离目标 (0.45, 0.15)，留出推动行程）
+    t_obj_mount:
+      pos:
+        x_range: [0.12, 0.32]
+        y_range: [-0.25, 0.25]
+        z_range: [0.65, 0.65]
+      euler:
+        roll_range: [0.0, 0.0]
+        pitch_range: [0.0, 0.0]
+        yaw_range: [-3.14159, 3.14159]
+    # t_target 不随机（目标固定）
+
 dual_pick_place:
   scene_file: assets/mujoco/scenes/dual_pick_place.xml
   scene_config_file: configs/scenes/scene_dual_pick_place.yaml

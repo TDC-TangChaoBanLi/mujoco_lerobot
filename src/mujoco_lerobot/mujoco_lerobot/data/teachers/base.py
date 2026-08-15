@@ -13,6 +13,8 @@ from typing import Any
 import mujoco
 import numpy as np
 
+from ..recording import RecordingDecision
+
 
 class TeacherState(Enum):
     RUNNING = "running"
@@ -38,6 +40,10 @@ class Teacher:
     # 注册元数据（子类覆盖）
     teacher_type: str = ""
     config_class: Any = None
+
+    # 每 episode 最大尝试次数：None = 使用场景配置 collection.max_attempts；
+    # 遥操作类 teacher 覆盖为 1（discarded 为用户主动行为，不做自动重试）
+    retry_limit: int | None = None
 
     def __init__(
         self,
@@ -80,6 +86,47 @@ class Teacher:
         子类必须实现。
         """
         raise NotImplementedError
+
+    # ── 录制控制（由 run_episode 每策略步调用） ─────────
+
+    def recording_decision(self, recording: bool) -> RecordingDecision | None:
+        """默认录制控制：reset 后自动开始录制；状态机跑完时按 check_success 判定。
+
+        - 未录制：返回 START（自动开始，适合 scripted 自动 teacher）
+        - 录制中且状态机跑完（is_done）：check_success() 为 True → SAVED
+          （保留本集），否则 DISCARDED（丢弃重录）
+        - 其它：None（继续）
+
+        遥操作类 teacher（如 PushTTeacher）应覆盖本方法，按用户输入
+        （鼠标 / 键盘事件）决定何时开始 / 结束 / 保存 / 丢弃。
+        """
+        if not recording:
+            return RecordingDecision.START
+        if self.is_done():
+            return (
+                RecordingDecision.SAVED
+                if self.check_success()
+                else RecordingDecision.DISCARDED
+            )
+        return None
+
+    # ── 采集会话钩子（由采集脚本 start_collection/end_collection 调用） ──
+
+    def start_collection(self) -> None:
+        """采集会话开始时调用（默认 no-op）。
+
+        遥操作类 teacher 覆盖：启动交互窗口（如 PushT 的 pygame 2D 俯视
+        窗口）、检查图形环境、打印按键说明。
+        """
+        pass
+
+    def end_collection(self) -> None:
+        """采集会话结束时调用（默认 no-op）。
+
+        遥操作类 teacher 覆盖：关闭 start_collection 启动的交互窗口。
+        必须幂等（多次调用安全）。
+        """
+        pass
 
     # ── 位姿查询 ───────────────────────────────────────
 

@@ -16,6 +16,7 @@ import numpy as np
 
 from ..configs.config_loader import SceneConfig
 from ..simulate.ik_solver import MinkIK
+from .recording import RecordingDecision
 from .teachers import TEACHER_REGISTRY, create_teacher
 
 
@@ -25,6 +26,15 @@ class Controller(Protocol):
     def step(self, observation: dict[str, Any]) -> np.ndarray: ...
     def is_done(self) -> bool: ...
     def is_success(self) -> bool: ...
+
+    def recording_decision(self, recording: bool) -> RecordingDecision | None:
+        """每策略步由 run_episode 调用，控制录制生命周期。
+
+        recording=False 表示尚未开始录制（teacher 可返回 START 请求开始，
+        或返回 QUIT 直接退出）；recording=True 时返回 SAVED / DISCARDED /
+        QUIT 结束本集，返回 None 继续。
+        """
+        ...
 
 
 class ScriptedTeacherController:
@@ -40,6 +50,7 @@ class ScriptedTeacherController:
         teacher_config: Any,
         model: mujoco.MjModel,
         data: mujoco.MjData,
+        teacher_kwargs: dict[str, Any] | None = None,
     ) -> None:
         tcls = TEACHER_REGISTRY.get(teacher_config.type)
         if tcls is None:
@@ -47,6 +58,7 @@ class ScriptedTeacherController:
         self._robots = list(config.robots)
         self._policy_dt = config.sim.policy_dt
         self._multi_arm = bool(getattr(tcls, "_is_multi_arm", False))
+        teacher_kwargs = teacher_kwargs or {}
 
         self._iks: dict[str, MinkIK] = {}
         for r in self._robots:
@@ -55,20 +67,22 @@ class ScriptedTeacherController:
                 init_qpos=data.qpos.copy(),
                 dt=self._policy_dt,
                 ee_site_name=r.prefixed_ee_site,
-                vel_limit=[10.0] * 6,
                 arm_joint_names=r.prefixed_arm_joints,
+                ik_config=r.ik_solver,
+                prefix=r.prefix,
             )
 
         if self._multi_arm:
             self._teacher: Any = create_teacher(
-                teacher_config.type, model, data, config=teacher_config
+                teacher_config.type, model, data,
+                config=teacher_config, **teacher_kwargs,
             )
         else:
             self._teachers: dict[str, Any] = {}
             for r in self._robots:
                 self._teachers[r.prefix] = create_teacher(
                     teacher_config.type, model, data,
-                    config=teacher_config, prefix=r.prefix,
+                    config=teacher_config, prefix=r.prefix, **teacher_kwargs,
                 )
 
     # ── Controller 接口 ────────────────────────────────
@@ -124,6 +138,49 @@ class ScriptedTeacherController:
             return bool(self._teacher.check_success())
         return all(t.check_success() for t in self._teachers.values())
 
+    def recording_decision(self, recording: bool) -> RecordingDecision | None:
+        """聚合各臂 teacher 的录制决策（优先级 QUIT > DISCARDED > SAVED > START）。"""
+        if self._multi_arm:
+            return self._teacher.recording_decision(recording)
+        decisions = [t.recording_decision(recording) for t in self._teachers.values()]
+        non_null = [d for d in decisions if d is not None]
+        if not non_null:
+            return None
+        for d in (
+            RecordingDecision.QUIT,
+            RecordingDecision.DISCARDED,
+            RecordingDecision.SAVED,
+            RecordingDecision.START,
+        ):
+            if d in non_null:
+                return d
+        return None
+
+    # ── 采集会话钩子（透传给各臂 teacher） ──────────────
+
+    @property
+    def retry_limit(self) -> int | None:
+        """每 episode 尝试上限；全为 None 时由采集脚本用场景配置。"""
+        if self._multi_arm:
+            return self._teacher.retry_limit
+        limits = [t.retry_limit for t in self._teachers.values()]
+        non_null = [l for l in limits if l is not None]
+        return min(non_null) if non_null else None
+
+    def start_collection(self) -> None:
+        if self._multi_arm:
+            self._teacher.start_collection()
+        else:
+            for t in self._teachers.values():
+                t.start_collection()
+
+    def end_collection(self) -> None:
+        if self._multi_arm:
+            self._teacher.end_collection()
+        else:
+            for t in self._teachers.values():
+                t.end_collection()
+
 
 class KeyboardTeleopController:
     """键盘遥操作控制器 — 增量目标位姿 + IK。
@@ -159,14 +216,20 @@ class KeyboardTeleopController:
         self._model = model
         self._data = data
 
+        # 录制控制事件（Enter=保存 Backspace=丢弃 Esc=退出），由按键线程写入
+        self._rec_save = False
+        self._rec_discard = False
+        self._rec_quit = False
+
         for r in self._robots:
             self._iks[r.prefix] = MinkIK(
                 model,
                 init_qpos=data.qpos.copy(),
                 dt=self._policy_dt,
                 ee_site_name=r.prefixed_ee_site,
-                vel_limit=[10.0] * 6,
                 arm_joint_names=r.prefixed_arm_joints,
+                ik_config=r.ik_solver,
+                prefix=r.prefix,
             )
             ee = self._ee_pose(r.prefixed_ee_site)
             self._target_pos[r.prefix] = ee[:3].copy()
@@ -274,3 +337,36 @@ class KeyboardTeleopController:
 
     def is_success(self) -> bool:
         return False
+
+    # ── 录制控制（由 run_episode 每策略步询问） ─────────
+
+    def record_event(self, key: int) -> bool:
+        """处理录制控制键（Enter=保存 Backspace=丢弃 Esc=退出），返回是否消费。
+
+        由 viewer 按键线程调用；与移动键（key_event）互斥锁共享。
+        """
+        with self._lock:
+            if key == 256:  # Esc
+                self._rec_quit = True
+            elif key == 13:  # Enter
+                self._rec_save = True
+            elif key in (8, 127):  # Backspace
+                self._rec_discard = True
+            else:
+                return False
+        return True
+
+    def recording_decision(self, recording: bool) -> RecordingDecision | None:
+        """键盘遥操作：自动开始录制；Enter=保存 / Backspace=丢弃 / Esc=退出。"""
+        with self._lock:
+            if self._rec_quit:
+                return RecordingDecision.QUIT
+            if not recording:
+                return RecordingDecision.START  # 键盘模式 reset 后立即开始录制
+            if self._rec_save:
+                self._rec_save = False
+                return RecordingDecision.SAVED
+            if self._rec_discard:
+                self._rec_discard = False
+                return RecordingDecision.DISCARDED
+        return None
