@@ -93,10 +93,10 @@ state:
     #                设置（如 30）→ 深度改有损 HEVC，按该 CRF 压缩（约 58x 缩小，典型误差 2~6mm）
     #   rgb_crf:   null → rgb 用 lerobot 默认 CRF=30
     #                设置（如 18）→ rgb 用该 CRF（更高画质、文件更大）
-    depth_crf: null
-    rgb_crf: null
+    depth_crf: 15
+    rgb_crf: 20
 
-    
+
 action:
   recode_scale: 3
   joint:

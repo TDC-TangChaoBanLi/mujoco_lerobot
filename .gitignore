@@ -20,3 +20,6 @@ libs/mujoco_camrender/src/mujoco_camrender/_mujoco_camrender*.so
 
 # MuJoCo 日志
 MUJOCO_LOG.TXT
+
+
+user/

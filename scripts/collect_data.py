@@ -74,7 +74,7 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 if not os.environ.get("DISPLAY"):
     os.environ.setdefault("MUJOCO_GL", "egl")
 for _name in ("lerobot", "datasets", "PIL", "torchvision", "ffmpeg", "av", "x265"):
-    logging.getLogger(_name).setLevel(logging.WARNING)
+    logging.getLogger(_name).setLevel(logging.ERROR)
 
 from mujoco_lerobot.configs import (
     load_scene_config,
@@ -194,20 +194,20 @@ def collect_teacher(
                     # 中断（如 Ctrl+C）：丢弃当前未完成 episode 的所有帧，
                     # 避免把半截/失败数据写进数据集。
                     discard()
-                    print("  ✗ 中断，已丢弃当前 episode 未保存的帧")
+                    print("🗑️ ❌ 中断，已丢弃当前 episode 未保存的帧")
                     raise
                 total_attempts += 1
                 ep_wall = time.perf_counter() - t_ep
 
                 if result == "quit":
-                    print("  已退出采集")
+                    print("⚠️ 已退出采集")
                     return
                 if result == "saved":
                     flush()
                     collected += 1
                     success = True
                     print(
-                        f"  ✓ {collected}/{args.episodes}  frames={n_frames}  "
+                        f"💾 ✅ {collected}/{args.episodes}  frames={n_frames}  "
                         f"ep_wall={ep_wall:.1f}s  "
                         f"total={time.perf_counter()-t0:.0f}s"
                     )
@@ -216,13 +216,13 @@ def collect_teacher(
                     # 失败（或用户丢弃）：本集帧不入库
                     discard()
                     print(
-                        f"  ✗ 尝试 {total_attempts} 失败  frames={n_frames}  "
+                        f"⚠️ ❌ 尝试 {total_attempts} 失败  frames={n_frames}  "
                         f"ep_wall={ep_wall:.1f}s  (帧已丢弃，不入库)"
                     )
 
             if not success:
                 print(
-                    f"  ⚠ 连续 {attempts} 次失败，跳过本集，继续下一集"
+                    f"⚠️ ❌ 连续 {attempts} 次失败，跳过本集，继续下一集"
                 )
     finally:
         ctrl.end_collection()  # teacher 钩子：如 PushT 关闭遥操作窗口
@@ -230,7 +230,7 @@ def collect_teacher(
 
     elapsed = time.perf_counter() - t0
     epm = collected / elapsed * 60 if elapsed > 0 else 0
-    print(f"完成: {collected} episodes 于 {elapsed:.1f}s "
+    print(f"✅ 完成: {collected} episodes 于 {elapsed:.1f}s "
           f"({epm:.1f} ep/min, 总尝试 {total_attempts})")
 
 
@@ -270,21 +270,21 @@ def collect_keyboard(args, scene_cfg, dataset_cfg, writer) -> None:
                 frame_callback=cb,
             )
             if result == "quit":
-                print("  已退出采集")
+                print("⚠️ 已退出采集")
                 break
             if result == "saved":
                 flush()
                 collected += 1
-                print(f"  ✓ 保存 episode {collected}/{args.episodes}  "
+                print(f"💾 ✅ 保存 episode {collected}/{args.episodes}  "
                       f"frames={n_frames}  total={time.perf_counter()-t0:.0f}s")
             else:
                 discard()
-                print(f"  ✗ 丢弃本集 (frames={n_frames})")
+                print(f"⚠️ ❌ 丢弃本集 (frames={n_frames})")
     finally:
         mgr.close()
 
     elapsed = time.perf_counter() - t0
-    print(f"完成: {collected} episodes 于 {elapsed:.1f}s")
+    print(f"✅ 完成: {collected} episodes 于 {elapsed:.1f}s")
 
 
 def main() -> None:
@@ -320,10 +320,10 @@ def main() -> None:
     writer = build_writer(args, scene_cfg, dataset_cfg)
     if args.append:
         n_existing = writer.dataset.meta.total_episodes
-        print(f"  追加模式: 已有 {n_existing} episodes, "
+        print(f"📂 追加模式: 已有 {n_existing} episodes, "
               f"本次新增 {args.episodes} → 目标 {n_existing + args.episodes}")
     else:
-        print(f"  新建数据集 → {writer.config.resolved_root()}")
+        print(f"📁 新建数据集 → {writer.config.resolved_root()}")
     try:
         if args.mode == "teacher":
             collect_teacher(args, scene_cfg, dataset_cfg, writer)
@@ -331,7 +331,7 @@ def main() -> None:
             collect_keyboard(args, scene_cfg, dataset_cfg, writer)
     finally:
         writer.finalize()
-        print(f"  数据集 → {writer.config.resolved_root()}")
+        print(f"💾 数据集 → {writer.config.resolved_root()}")
 
 
 if __name__ == "__main__":

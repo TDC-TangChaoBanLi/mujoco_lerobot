@@ -24,6 +24,7 @@
   - `data/teachers/`：**任务专属代码唯一允许的位置**（pick_place / dual_pick_place / push_t + push_t 遥操作 `push_t_teleop.py`）
 - `src/lerobot_env_mujoco_lerobot/`：LeRobot 评估环境插件（gym env，type=`mujoco_lerobot`；深度单位显式米）
 - `src/lerobot_policy_Adaptive_ACT/`：自适应 ACT 策略插件（type=`adaptive_act`）
+- `user/lerobot_policy/lerobot_policy_bimft/`：BiMFT 双臂多模态融合策略插件（type=`bimft`，适配多速率双臂数据集；模型代码内嵌、推理历史队列、相机角色可配置）
 - `libs/mujoco_camrender/`：多相机并行渲染（C++ + pybind，git submodule）
 - `configs/`：tasks / scenes / dataset / teachers / policy
 - `scripts/collect_data.py`：一键采集（auto scripted teacher / keyboard / mouse / --append 追加）
@@ -58,6 +59,10 @@ uv run python scripts/collect_data.py ... --append outputs/datasets/pick_place/<
 ```bash
 uv run lerobot-train --config_path=configs/policy/adaptive_act.yaml \
     --dataset.root=outputs/datasets/pick_place/<时间戳> --steps=100000
+
+# BiMFT 双臂策略（多速率数据集）
+uv run lerobot-train --config_path=configs/policy/bimft.yaml \
+    --dataset.root=outputs/datasets/dual_pick_place/<时间戳> --steps=100000
 ```
 - 纯 RGB：`input_features` 只选 rgb；RGBD：rgb+depth 用 `concat_visual_features` 拼 4 通道（conv1 自动适配）
 - 深度单位两端显式米（记录侧 features info + 训练侧 `dataset.depth_output_unit: m`），不依赖补丁
@@ -85,6 +90,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest tests/
 - `configs/dataset/dataset_*.yaml`：记录格式 + `state.camera.depth_range` + `depth_crf`/`rgb_crf`
 - `configs/teachers/*.yaml`：scripted teacher 参数（push_t 为遥操作参数）
 - `configs/policy/adaptive_act.yaml`：训练配置（含 RGBD concat 示例）
+- `configs/policy/bimft.yaml`：BiMFT 训练配置（多速率双臂数据集）
 
 ### 机器人 ik_solver 参数（mink IK）
 `configs/scenes/scene_*.yaml → robot[].ik_solver`，全部 IK 参数在此配置：
@@ -110,9 +116,11 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest tests/
 11. **PushT 鼠标方向反转**：本环境 grab 模式（MOUSE ON）下 SDL 真实鼠标增量与物理移动 180° 相反（X/Y 都反），XTest/warp/非 grab 均标准 → 无法自动校准，已用配置 `sens.invert_x/y`（当前 true）修正，标准环境改回 false
 12. **camrender 重编译**：`libs/mujoco_camrender` 任何 C++/pybind 改动后必须重编译 `.so` 并 `uv sync --reinstall-package mujoco-camrender`，否则运行时枚举/API 不匹配（如 `RenderBackend.EGL` 缺失 → 回退 mujoco.Renderer）
 13. **位置控制器带宽**：position actuator 是 PD（`τ=kp(ctrl−q)−kv·q̇`，dampratio=1 临界阻尼，`kv=2ζ√(kp·m)`）。肩肘带宽仅 ~1 Hz（kp 200/100 vs 惯量 2–3.5 kg·m²），每 policy 步仅完成 ~8% 误差衰减 → 物理速度 ≈ vel_limit × ~0.1 跟踪系数；**vel_limit 是 IK 指令层配额，与物理层 PD 带宽互相独立**。想加快应提高 kp（注意数值稳定性），不是调 vel_limit
+14. **BiMFT 策略**：`user/lerobot_policy/lerobot_policy_bimft`（type=`bimft`）适配多速率双臂数据集（`use_recode_scale=true`，state/action shape `(R, D)`）。模型代码内嵌（仅 torch+torchvision）；模型配置默认包内 `bimft.yaml`（`model_cfg_path=null`）；相机角色 `camera_roles` 可配置或自动检测；推理用历史队列（`reset()` 清空，不足首帧补齐）；`joint_high_rate` 声明每帧高频采样数 R（state 实际 R 不足时重复）。训练配置 `configs/policy/bimft.yaml`（注意 `dataloader_multiprocessing_context` 是 TrainPipelineConfig 顶层字段，不在 `policy:` 段下）
 
 ## 当前状态
 
 - 场景：pick_place（2 相机）/ dual_pick_place（3 相机）/ push_t
 - 已训练 RGBD adaptive_act：`outputs/train/rgbd_adaptive_act_pick_place/`（100K 步，loss ~0.022）
 - 数据集：`outputs/datasets/{pick_place,push_t}/<时间戳>/`（rgb+depth，米制；pick_place 含 50-episode 数据集 `20260806_004855`）
+- BiMFT 策略插件：`user/lerobot_policy/lerobot_policy_bimft`（type=`bimft`，已通过单元测试 + 端到端 smoke 训练/eval）
