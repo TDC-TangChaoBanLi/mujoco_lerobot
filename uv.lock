@@ -8,6 +8,12 @@ resolution-markers = [
     "(platform_machine != 'AMD64' and platform_machine != 'aarch64' and platform_machine != 'arm64' and platform_machine != 'x86_64' and sys_platform == 'linux') or (platform_machine != 'arm64' and sys_platform == 'darwin') or (sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32')",
 ]
 
+[manifest]
+members = [
+    "lerobot-policy-bimft",
+    "mujoco-lerobot",
+]
+
 [[package]]
 name = "absl-py"
 version = "2.5.0"
@@ -896,6 +902,25 @@ requires-dist = [
 ]
 
 [[package]]
+name = "lerobot-policy-bimft"
+version = "0.1.0"
+source = { editable = "src/lerobot_policy_bimft" }
+dependencies = [
+    { name = "lerobot" },
+    { name = "pyyaml" },
+    { name = "torch" },
+    { name = "torchvision" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "lerobot", specifier = ">=0.6.1" },
+    { name = "pyyaml", specifier = ">=6.0.0" },
+    { name = "torch", specifier = ">=2.2.0" },
+    { name = "torchvision", specifier = ">=0.17.0" },
+]
+
+[[package]]
 name = "markupsafe"
 version = "3.0.3"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -1064,6 +1089,7 @@ dependencies = [
     { name = "lerobot", extra = ["dataset", "training"] },
     { name = "lerobot-env-mujoco-lerobot" },
     { name = "lerobot-policy-adaptive-act" },
+    { name = "lerobot-policy-bimft" },
     { name = "mink" },
     { name = "mujoco" },
     { name = "mujoco-camrender" },
@@ -1085,6 +1111,7 @@ requires-dist = [
     { name = "lerobot", extras = ["dataset", "training"], specifier = ">=0.6.1" },
     { name = "lerobot-env-mujoco-lerobot", editable = "src/lerobot_env_mujoco_lerobot" },
     { name = "lerobot-policy-adaptive-act", editable = "src/lerobot_policy_Adaptive_ACT" },
+    { name = "lerobot-policy-bimft", editable = "src/lerobot_policy_bimft" },
     { name = "mink", specifier = ">=1.2.0" },
     { name = "mujoco", specifier = ">=3.11.0" },
     { name = "mujoco-camrender", editable = "libs/mujoco_camrender" },

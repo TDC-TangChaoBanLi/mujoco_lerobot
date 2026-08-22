@@ -7,6 +7,7 @@
 #
 # 命令行参数优先级更高，可覆盖本文件任意字段。
 
+dataloader_multiprocessing_context: fork
 # ── 策略（bimft）────────────────────────────────────
 policy:
   type: bimft

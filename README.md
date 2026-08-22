@@ -289,8 +289,8 @@ features info 里显式写入 `depth_unit="m"`（`info.json` 记录单位）；�
 ```bash
 # 使用策略配置文件 config_path（推荐；命令行可覆盖任意字段，如 dataset.root / steps）
 uv run lerobot-train \
-    --num_workers=8 \
-    --prefetch_factor=8 \
+    --num_workers=12 \
+    --prefetch_factor=4 \
     --persistent_workers=true \
     --save_freq=10000 \
     --steps=50000 \
