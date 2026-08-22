@@ -26,8 +26,8 @@ import torch
 from lerobot.configs import FeatureType, PolicyFeature
 from lerobot.envs.configs import EnvConfig
 from lerobot.processor import PolicyProcessorPipeline
-from lerobot.processor.pipeline import ObservationProcessorStep
-from lerobot.lerobot_types import EnvTransition
+from lerobot.processor.pipeline import ObservationProcessorStep, PolicyActionProcessorStep
+from lerobot.lerobot_types import EnvTransition, PolicyAction
 from lerobot.utils.constants import ACTION, OBS_IMAGES, OBS_STATE
 
 from mujoco_lerobot.configs.config_loader import load_scene_config
@@ -97,6 +97,27 @@ class ScaleDepthToOutputUnitProcessorStep(ObservationProcessorStep):
 
     def transform_features(self, features):
         # 缩放不改变 shape/dtype 描述，原样返回
+        return features
+
+
+class CastActionToFloat32Step(PolicyActionProcessorStep):
+    """将策略输出的动作强制转为 float32（对齐 env action space dtype）。
+
+    训练/评估配置 ``use_amp=true`` 时，lerobot-eval 用 ``torch.autocast`` 包裹
+    推理，策略输出动作可能为 float16；而本 env 的 action space 与录制数据集
+    schema（``_env_features_to_dataset_features`` 生成）均为 float32。此步骤在
+    ``env.step`` 与录制帧构建之前把动作转回 float32，避免录制时
+    ``validate_frame`` 报 "dtype 'float16' is not of the expected dtype 'float32'"。
+    """
+
+    def action(self, action: PolicyAction) -> PolicyAction:
+        return action.float()
+
+    def __call__(self, transition: EnvTransition) -> EnvTransition:
+        return super().__call__(transition)
+
+    def transform_features(self, features):
+        # 类型转换不改变 shape/dtype 描述，原样返回
         return features
 
 
@@ -216,5 +237,9 @@ class MujocoLerobotEnvConfig(EnvConfig):
                 ScaleDepthToOutputUnitProcessorStep(self.depth_output_unit),
             ]
         )
-        postprocessor = PolicyProcessorPipeline(steps=[])
+        # postprocessor：把策略输出动作强制转 float32（use_amp 下 autocast 会产出
+        # float16 动作，与 env action space / 录制数据集 schema 的 float32 不一致）
+        postprocessor = PolicyProcessorPipeline(
+            steps=[CastActionToFloat32Step()]
+        )
         return preprocessor, postprocessor

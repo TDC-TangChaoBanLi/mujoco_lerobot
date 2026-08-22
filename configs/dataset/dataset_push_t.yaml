@@ -11,7 +11,7 @@
 use_recode_scale: false
 
 # 记录频率（LeRobot 数据集 fps）
-recode_hz: 100.0
+recode_hz: 30.0
 
 state:
   recode_scale: 1

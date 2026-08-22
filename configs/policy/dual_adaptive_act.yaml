@@ -14,6 +14,9 @@ dataloader_multiprocessing_context: fork
 policy:
   type: adaptive_act
   push_to_hub: false
+  # 混合精度训练：3 相机（2 手眼 + 1 全局）下 hand 组 backbone 输入帧数翻倍，
+  # 必须开启 AMP 才能容纳 batch 32+（24GB 显存）。默认 False。
+  use_amp: true
   # 输入特征：必须声明 concat_visual_features 引用的所有源特征（本项目两相机
   # 各含 rgb(3ch) 与 depth(1ch) 两个 VISUAL，下方拼成 4 通道 RGBD 送 backbone；
   # conv1 自动适配 4 通道，无需再指定 image_channels）。
@@ -39,9 +42,12 @@ policy:
   # 若只想用纯 RGB（不拼 depth），把 concat_visual_features 置空（null）并从
   # input_features 中去掉 depth 即可。
   concat_visual_features:
-    observation.images.realsense_link_CAMERA.rgbd:
-      - observation.images.realsense_link_CAMERA.rgb
-      - observation.images.realsense_link_CAMERA.depth
+    observation.images.A_realsense_link_CAMERA.rgbd:
+      - observation.images.A_realsense_link_CAMERA.rgb
+      - observation.images.A_realsense_link_CAMERA.depth
+    observation.images.B_realsense_link_CAMERA.rgbd:
+      - observation.images.B_realsense_link_CAMERA.rgb
+      - observation.images.B_realsense_link_CAMERA.depth
     observation.images.global_realsense_link_CAMERA.rgbd:
       - observation.images.global_realsense_link_CAMERA.rgb
       - observation.images.global_realsense_link_CAMERA.depth
@@ -49,7 +55,7 @@ policy:
   # 等价原生 ACT 的单 backbone。
   # 多相机示例（如双臂 3 相机：两个手眼 + 一个全局）：
   camera_backbone_groups:
-    hand: [realsense_link_CAMERA]               # 手眼相机共用一个 resnet18
+    hand: [A_realsense_link_CAMERA, B_realsense_link_CAMERA]               # 手眼相机共用一个 resnet18
     global: [global_realsense_link_CAMERA]      # 全局相机用另一个 resnet18
   # 未出现在任何组的相机自动归入共享默认组。
   # camera_backbone_groups: null
@@ -89,7 +95,7 @@ policy:
 
 # ── 数据集 ────────────────────────────────────────────────
 dataset:
-  repo_id: mujoco_pick_place
+  repo_id: mujoco_dual_pick_place
   # 按实际采集的时间戳目录覆盖（configs/dataset/dataset_pick_place.yaml 为记录格式，
   # 这里是已采集的数据目录）；命令行 --dataset.root=... 可覆盖
   # root: outputs/datasets/pick_place/20260806_004855

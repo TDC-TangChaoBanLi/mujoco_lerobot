@@ -338,6 +338,53 @@ uv run accelerate launch \
 - 分布式下 `--policy.device` 会被忽略（accelerate 自动按 rank 分配 GPU）。
 - env 评估只在主进程执行；checkpoint 会记录 `num_processes`/`batch_size`，续训自动恢复。
 
+### 继续训练（resume）
+
+中断或想延长训练时，从已有 checkpoint 续训。checkpoint 目录结构为
+`<output_dir>/checkpoints/<step>/`（含 `pretrained_model/` 与 `training_state/`），
+`checkpoints/last/` 为最新一步的软链接。
+
+```bash
+# 单 GPU 续训：从 checkpoints/last 恢复模型权重 + 优化器 + 调度器 + RNG 状态
+uv run lerobot-train \
+    --config_path=outputs/train/<时间戳目录>/<时间戳+策略名>/checkpoints/last/pretrained_model \
+    --resume=true \
+    --output_dir=outputs/train/<时间戳目录>/<时间戳+策略名> \
+    --steps=<新总步数>
+```
+
+**参数说明**：
+
+- `--config_path`：指向 checkpoint 的 `pretrained_model/` 目录（或其中的
+  `train_config.json`）。续训时**默认使用 checkpoint 里保存的完整训练配置**
+  （`train_config.json`，含 policy 超参 / dataset / 优化器 / 调度器等），命令行
+  `--*` 参数仍可覆盖同名项。
+- `--resume=true`：开启续训模式（必须与 `--config_path` 搭配）。
+- `--output_dir`：**必须指向原训练输出目录**（与首次训练一致）。若省略，lerobot
+  会新建一个 `<时间戳>_resume` 目录，导致续训结果与原始 run 分离。
+- `--steps`：**新的总步数，不是增量**。训练从已恢复的步数继续跑到 `steps`：
+  例如原训练 100000 步，想再训 50000 步，设 `--steps=150000`。
+- 数据相关参数（`--dataset.root` 等）默认从 checkpoint 配置恢复；如需换数据集
+  继续训练，显式覆盖 `--dataset.root=<新数据集目录>` 即可（注意特征 / 单位须一致）。
+
+**多 GPU 续训**：与首次训练相同，需 `NCCL_IB_DISABLE=1` +
+`--dataloader_multiprocessing_context=fork`，且 `--num_processes` / `--batch_size`
+应与原训练一致——checkpoint 记录了这两项，续训时用于**样本级精确衔接**
+（数据顺序从断点处继续，不重复不跳过）：
+
+```bash
+env NCCL_IB_DISABLE=1 \
+uv run accelerate launch \
+    --num_processes=2 \
+    --num_machines=1 \
+    --mixed_precision=bf16 \
+    -m lerobot.scripts.lerobot_train \
+    --config_path=outputs/train/<时间戳目录>/<时间戳+策略名>/checkpoints/last/pretrained_model \
+    --resume=true \
+    --output_dir=outputs/train/<时间戳目录>/<时间戳+策略名> \
+    --steps=<新总步数>
+```
+
 
 ## 策略评估（lerobot-eval）
 

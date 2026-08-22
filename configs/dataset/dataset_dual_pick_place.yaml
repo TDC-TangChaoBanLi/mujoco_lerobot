@@ -8,7 +8,7 @@
 #           state 各源拼接为 observation.state (state_dim,)，
 #           action 为 (action_dim,)，可直接用于 LeRobot 内置 ACT 等策略；
 #           并忽略所有 recode_scale 字段。
-use_recode_scale: true
+use_recode_scale: false
 
 # 记录频率（LeRobot 数据集 fps）
 recode_hz: 30.0
@@ -40,18 +40,18 @@ state:
     # effort: # dim: 1*n  关节力矩（qfrc_actuator）
     #   recode_scale: 1
     #   joint_names: []
-  sensor:
-    recode_scale: 3          # 90 Hz
-    force:
-      recode_scale: 1
-      sensor_names:
-        - A_ur_ft_frame_SENSOR_FORCE
-        - B_ur_ft_frame_SENSOR_FORCE
-    torque:
-      recode_scale: 1
-      sensor_names:
-        - A_ur_ft_frame_SENSOR_TORQUE
-        - B_ur_ft_frame_SENSOR_TORQUE
+  # sensor:
+  #   recode_scale: 3          # 90 Hz
+  #   force:
+  #     recode_scale: 1
+  #     sensor_names:
+  #       - A_ur_ft_frame_SENSOR_FORCE
+  #       - B_ur_ft_frame_SENSOR_FORCE
+  #   torque:
+  #     recode_scale: 1
+  #     sensor_names:
+  #       - A_ur_ft_frame_SENSOR_TORQUE
+  #       - B_ur_ft_frame_SENSOR_TORQUE
     # gyro: # dim: 3*n
     #   recode_scale: 1
     #   sensor_names:
