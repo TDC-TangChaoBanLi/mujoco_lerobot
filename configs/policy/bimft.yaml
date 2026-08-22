@@ -1,0 +1,68 @@
+# BiMFT 双臂多模态融合 Transformer 策略训练配置（lerobot TrainPipelineConfig）
+#
+# 用法：
+#   uv run lerobot-train --config_path=configs/policy/bimft.yaml \
+#       --dataset.root=outputs/datasets/dual_pick_place/<时间戳> \
+#       --steps=100000
+#
+# 命令行参数优先级更高，可覆盖本文件任意字段。
+
+# ── 策略（bimft）────────────────────────────────────
+policy:
+  type: bimft
+  push_to_hub: false
+
+  # 输入/输出结构
+  n_obs_steps: 4          # 视觉历史帧数（4 帧 ≈ 0.13s）
+  horizon: 30             # 动作块长度（30 步 @ 90Hz）
+  n_action_steps: 3       # 每次执行的动作步数
+
+  # 模型详细配置 YAML；null = 使用包内捆绑的 bimft.yaml
+  # model_cfg_path: null
+
+  # 相机角色映射（数据集相机名 → left/right/global）
+  # null = 从 input_features 自动检测（含 global/top/third → 全局；
+  #        A_/left → 左腕；B_/right → 右腕）
+  camera_roles:
+    left: A_realsense_link_CAMERA
+    right: B_realsense_link_CAMERA
+    global: global_realsense_link_CAMERA
+
+  # 训练超参数
+  optimizer_lr: 1e-4
+  optimizer_weight_decay: 1e-4
+  scheduler_warmup_steps: 500
+  use_amp: true
+
+  # CVAE 隐变量
+  latent_dim: 128
+  cvae_encoder_layers: 4
+  cvae_heads: 8
+  kl_weight: 1.0
+
+# ── 数据集 ────────────────────────────────────────────────
+dataset:
+  repo_id: mujoco_dual_pick_place
+  # 按实际采集的时间戳目录覆盖（configs/dataset/dataset_dual_pick_place.yaml 为记录格式，
+  # 这里是已采集的数据目录）；命令行 --dataset.root=... 可覆盖
+  # root: outputs/datasets/dual_pick_place/20260816_195932
+  # 深度解码输出单位：本项目统一为米（记录侧 info.json depth_unit="m"，
+  # 评估 env 亦为米），两端显式一致。
+  depth_output_unit: m
+
+# ── 训练 ──────────────────────────────────────────────────
+# output_dir: outputs/train/bimft_dual_pick_place
+# steps: 100000
+# batch_size: 8
+# save_freq: 5000
+# log_freq: 100
+# env_eval_freq: 20000
+# num_workers: 4
+# seed: 1000
+# dataloader_multiprocessing_context: fork   # 顶层字段（TrainPipelineConfig）
+
+# 可选：离线 WandB 指标（本地记录曲线，无需登录）
+# wandb:
+#   enable: true
+#   mode: offline
+#   project: mujoco_lerobot

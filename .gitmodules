@@ -1,3 +1,6 @@
 [submodule "libs/mujoco_camrender"]
 	path = libs/mujoco_camrender
 	url = https://github.com/TDC-TangChaoBanLi/mujoco_camrender.git
+[submodule "src/lerobot_policy_bimft"]
+	path = src/lerobot_policy_bimft
+	url = git@github.com:TDC-TangChaoBanLi/lerobot_policy_bimft.git

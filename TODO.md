@@ -1,0 +1,10 @@
+- 将 `_HAS_CAMRENDER` 的相机渲染改为异步渲染，同时考虑时序同步问题，确保渲染帧率达标
+- 将原生相机渲染改为渲染线程池渲染，同时渲染多个相机
+- 将 eval 时的渲染回调 `render_view()` 改为可支持 `mujoco_camrender` 进行渲染渲染
+- 将 `src/mujoco_lerobot/mujoco_lerobot/data/observation_collector.py` 中的 `sample()` 方法拆分为 `sample_observation()` 和 `sample_action()` ，其中 `sample_observation()` 包括图像采集 `sample_image()`、状态采集 `sample_state()` ；同时将图像渲染器在 `ObservationCollector` 中进行管理，而不要放到 `SimulationManager` ；此外，数据采集的时序调度（根据数据集设置的采集频率对数据采集中不同数据源的不同采集频率的时序管理）应该由 `ObservationCollector` 管理； `ObservationCollector` 应当只暴露一个 `get_collect()` 方法供 `run_episode()` 使用，该方法包含对 `sample_observation()`  、 `sample_action()` 、 `flush()` 的调用。同时，上述修改不仅需要能在数据采集中使用，还需要能在 `src/lerobot_env_mujoco_lerobot/lerobot_env_mujoco_lerobot/lerobot_env.py` 中以相同或者相似方式使用。
+- 将 `configs/simulate_default.yaml` 中的 `physics_dt` 改名为 `sim_dt` ，表示仿真时间步长；将 `policy_dt` 改名为 `ctrl_dt` ，表示执行器的控制时间步长，该步长应当与数据集录制频率相区分，在数据采集时，该步长也时 teacher 的更新步长；
+- 当前的 `src/mujoco_lerobot/mujoco_lerobot/data/controllers.py` 中支持了一个场景下有多个 teacher 的情况，现在改为每个场景或任务仅有一个 teacher 。
+- 现在 teacher 基类中应该添加一个 `robots` 对象字典，用于存储场景中所有的机器人的状态等信息，以便直接获取机器人的末端位姿、关节名称和角度、当前执行器名称和状态等信息；将 `get_object_pose()` 改为 `get_body_pose()` ，用于获取场景中指定物体的位姿；添加 `get_ee_pose()` 方法，用于获取场景中指定 site 的位姿；添加 `get_geom_pose()` ，用于获取指定 geom 的位姿； `make_action()` 应当返回 3d位置、4d四元数、1d夹爪命令 tuple 而非拼接为一个列表；
+- `src/mujoco_lerobot/mujoco_lerobot/data/controllers.py` 的 `step()` 方法应该返回执行器以及对应的命令，而不是一个拼接的东西。
+- `src/mujoco_lerobot/mujoco_lerobot/simulate/actuators.py` 的内容应该并入 `src/mujoco_lerobot/mujoco_lerobot/simulate/mujoco_wrapper.py`
+- `src/mujoco_lerobot/mujoco_lerobot/simulate/mujoco_wrapper.py` 应该实现基于关节名的关节状态查询和直接关节位置设置、关节和执行器的映射、基于执行器名的执行器命令设置、基于site/body/geom名的位姿查询、基于传感器名称和类型的传感器数值查询、查询执行器列表及其对应类型/关节、查询关节名列表、查询 site/body/geom 名列表、查询传感器列表机器对应类型/site/joint等，总之，一切对 joint/actuator/geom/body/site/sensor 等的操作都应该通过其 name 进行，而不是像现在这样仅仅引出原生基于id的接口。
