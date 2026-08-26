@@ -36,27 +36,21 @@ CAM_RIGHT = "B_realsense_link_CAMERA"
 CAM_GLOBAL = "global_realsense_link_CAMERA"
 CAMERAS = [CAM_LEFT, CAM_RIGHT, CAM_GLOBAL]
 
-# 小尺寸模型配置（覆盖包内 bimft.yaml 的 token/vision/action 等）
-SMALL_MODEL_OVERRIDES = {
-    "d_model": 64,
-    "n_heads": 4,
-    "dim_feedforward": 256,
-    "grid_h": 4,
-    "grid_w": 4,
-    "pretrained_rgb": False,
-    "action_decoder_layers": 1,
-    "action_head_hidden_dim": 32,
-    "latent_dim": 8,
-    "cvae_encoder_layers": 1,
-    "cvae_heads": 4,
-    "joint_encoder_layers": 1,
-    "force_encoder_layers": 1,
-    "slot_fusion_layers": 1,
-    "arm_temporal_layers": 1,
-    "global_temporal_layers": 1,
-    "coordination_layers": 1,
-    "reinjection_layers": 1,
-}
+# 小尺寸模型配置（覆盖包内 bimft.yaml 的 backbone/local_brain/cvae/decoder 等）
+SMALL_MODEL_OVERRIDES = [
+    ("backbone", "d_model", 64),
+    ("backbone", "n_heads", 4),
+    ("backbone", "dim_feedforward", 256),
+    ("vision", "pretrained_rgb", False),
+    ("local_brain", "local_encoder_layers", 1),
+    ("local_brain", "temporal_encoder_layers", 1),
+    ("global_branch", "global_frame_layers", 1),
+    ("global_branch", "global_temporal_layers", 1),
+    ("interaction", "cross_attention_layers", 1),
+    ("cvae", "cvae_encoder_layers", 1),
+    ("cvae", "latent_dim", 8),
+    ("decoder", "decoder_layers", 1),
+]
 
 
 def _vis(c: int, h: int = IMG, w: int = IMG) -> PolicyFeature:
@@ -104,31 +98,15 @@ def _make_cfg(**overrides) -> BiMFTConfig:
 
 def _make_policy(**overrides) -> BiMFTPolicy:
     cfg = _make_cfg(**overrides)
-    # 用临时小尺寸 YAML 覆盖包内默认（避免 512 维大模型）
+    # 用临时小尺寸 YAML 覆盖包内默认（避免 768 维 300M 大模型）
     import yaml
 
-    yaml_path = Path(__file__).resolve().parents[1] / "user/lerobot_policy/lerobot_policy_bimft/lerobot_policy_bimft/bimft.yaml"
+    yaml_path = (
+        Path(__file__).resolve().parents[1]
+        / "src/lerobot_policy_bimft/lerobot_policy_bimft/bimft.yaml"
+    )
     data = yaml.safe_load(yaml_path.read_text())
-    for section, key, val in [
-        ("token", "d_model", SMALL_MODEL_OVERRIDES["d_model"]),
-        ("token", "n_heads", SMALL_MODEL_OVERRIDES["n_heads"]),
-        ("token", "dim_feedforward", SMALL_MODEL_OVERRIDES["dim_feedforward"]),
-        ("vision", "grid_h", SMALL_MODEL_OVERRIDES["grid_h"]),
-        ("vision", "grid_w", SMALL_MODEL_OVERRIDES["grid_w"]),
-        ("vision", "pretrained_rgb", SMALL_MODEL_OVERRIDES["pretrained_rgb"]),
-        ("action", "decoder_layers", SMALL_MODEL_OVERRIDES["action_decoder_layers"]),
-        ("action", "head_hidden_dim", SMALL_MODEL_OVERRIDES["action_head_hidden_dim"]),
-        ("cvae", "latent_dim", SMALL_MODEL_OVERRIDES["latent_dim"]),
-        ("cvae", "encoder_layers", SMALL_MODEL_OVERRIDES["cvae_encoder_layers"]),
-        ("cvae", "heads", SMALL_MODEL_OVERRIDES["cvae_heads"]),
-        ("state", "joint_encoder_layers", SMALL_MODEL_OVERRIDES["joint_encoder_layers"]),
-        ("state", "force_encoder_layers", SMALL_MODEL_OVERRIDES["force_encoder_layers"]),
-        ("slot_fusion", "layers", SMALL_MODEL_OVERRIDES["slot_fusion_layers"]),
-        ("temporal", "arm_layers", SMALL_MODEL_OVERRIDES["arm_temporal_layers"]),
-        ("temporal", "global_layers", SMALL_MODEL_OVERRIDES["global_temporal_layers"]),
-        ("bimanual", "coordination_layers", SMALL_MODEL_OVERRIDES["coordination_layers"]),
-        ("bimanual", "reinjection_layers", SMALL_MODEL_OVERRIDES["reinjection_layers"]),
-    ]:
+    for section, key, val in SMALL_MODEL_OVERRIDES:
         data[section][key] = val
     tmp = Path("/tmp/bimft_test_small.yaml")
     tmp.write_text(yaml.safe_dump(data))
@@ -343,6 +321,44 @@ def test_forward_missing_action():
     batch.pop("action")
     loss, out = policy.forward(batch)
     assert torch.isfinite(loss)
+
+
+def test_architecture_internal_shapes():
+    """新架构内部形状：局部脑 token 数、推理 z=0、CVAE 仅训练启用。"""
+    from lerobot_policy_bimft.modeling_bimft import _build_policy_batch
+
+    policy = _make_policy()
+    policy.eval()
+    cfg = policy.config
+    model = policy.model
+
+    # N_frame = N_s + N_v + 2R_h；N_brain = N_frame + T_v·N_s
+    n_v = (model.cfg.image_height // 32) * (model.cfg.image_width // 32)
+    n_frame = model.cfg.frame_summary_tokens + n_v + 2 * model.cfg.high_rate_per_frame
+    n_brain = n_frame + cfg.n_obs_steps * model.cfg.frame_summary_tokens
+
+    obs = _make_infer_batch(cfg, b=1)
+    frame = {k: v for k, v in obs.items() if isinstance(v, torch.Tensor)}
+    policy._obs_queue.append(frame)
+    stacked = policy._stack_obs_queue()
+    pb = _build_policy_batch(stacked, cfg)
+    out = model(pb)
+
+    assert tuple(out.left_action.shape) == (1, cfg.horizon, 7)
+    assert tuple(out.right_action.shape) == (1, cfg.horizon, 7)
+    # 推理模式：不运行 CVAE Encoder
+    assert out.mu is None and out.logvar is None
+
+    # 训练模式：CVAE 输出 μ/logσ² [B, D_z]
+    policy.train()
+    train_batch = _make_train_batch(cfg, b=2)
+    target = train_batch["action"].reshape(2, -1, 14)[:, : cfg.horizon]
+    if target.shape[1] < cfg.horizon:
+        pad = target[:, -1:].expand(-1, cfg.horizon - target.shape[1], -1)
+        target = torch.cat([target, pad], dim=1)
+    out_train = model(_build_policy_batch(train_batch, cfg), joint_actions=target)
+    assert tuple(out_train.mu.shape) == (2, model.cfg.latent_dim)
+    assert tuple(out_train.logvar.shape) == (2, model.cfg.latent_dim)
 
 
 # ── 推理历史队列 ─────────────────────────────────────────
