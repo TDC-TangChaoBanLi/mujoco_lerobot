@@ -15,8 +15,13 @@ policy:
 
   # 输入/输出结构
   n_obs_steps: 4          # 视觉历史帧数（4 帧 ≈ 0.13s）
-  horizon: 30             # 动作块长度（30 步 @ 90Hz）
+  horizon: 180            # 动作块长度（180 步 @ 90Hz = 60 帧 × 3 采样）
   n_action_steps: 3       # 每次执行的动作步数
+
+  # 推理时序集成（Temporal Ensemble，ACT Algorithm 2）：
+  # 非 null 时启用，每步查询完整动作块并与历史预测加权平均（需 n_action_steps=1）。
+  # 典型值 0.01；null = 关闭（默认）。
+  # temporal_ensemble_coeff: 0.01
 
   # 模型详细配置 YAML；null = 使用包内捆绑的 bimft.yaml
   # model_cfg_path: null

@@ -406,6 +406,49 @@ def test_predict_action_chunk():
     assert torch.isfinite(chunk).all()
 
 
+# ── 时序集成（Temporal Ensemble）─────────────────────────
+
+
+def test_temporal_ensemble():
+    """时序集成：n_action_steps=1 时逐帧查询并输出集成动作。"""
+    policy = _make_policy(
+        temporal_ensemble_coeff=0.01,
+        n_action_steps=1,
+    )
+    policy.eval()
+    policy.reset()
+    obs = _make_infer_batch(policy.config, b=1)
+    for _ in range(5):
+        action = policy.select_action(obs)
+        assert tuple(action.shape) == (1, 14)
+        assert torch.isfinite(action).all()
+    # 集成缓冲已建立（非首帧）
+    assert policy.temporal_ensembler.ensembled_actions is not None
+
+
+def test_temporal_ensemble_reset():
+    """reset() 清空时序集成缓冲。"""
+    policy = _make_policy(
+        temporal_ensemble_coeff=0.01,
+        n_action_steps=1,
+    )
+    policy.eval()
+    obs = _make_infer_batch(policy.config, b=1)
+    policy.select_action(obs)
+    assert policy.temporal_ensembler.ensembled_actions is not None
+    policy.reset()
+    assert policy.temporal_ensembler.ensembled_actions is None
+    # reset 后仍可继续推理
+    action = policy.select_action(obs)
+    assert tuple(action.shape) == (1, 14)
+
+
+def test_temporal_ensemble_requires_n_action_steps_1():
+    """时序集成要求 n_action_steps=1（策略每步被查询）。"""
+    with pytest.raises(NotImplementedError):
+        _make_cfg(temporal_ensemble_coeff=0.01, n_action_steps=3)
+
+
 # ── 归一化 ────────────────────────────────────────────────
 
 
